@@ -7,7 +7,7 @@
  *
  * There is deliberately no raster basemap. Under globe projection a basemap has
  * to be a Web Mercator tile pyramid, and the night-earth artwork is a single
- * equirectangular image — reprojecting it needs tooling this project does not
+ * equirectangular image. Reprojecting it needs tooling this project does not
  * carry. Instead the world outline is drawn as a dark silhouette under the quiz
  * layer, which keeps surrounding continents legible, and the starfield stays a
  * CSS layer behind a canvas whose sky is transparent.
@@ -136,9 +136,9 @@ function featureCentre(geometry, origin) {
  * from `origin`, the authored centre for the quiz.
  *
  * The subtler one is outliers. Alaska and Hawaii stretch the extent to 120° of
- * longitude, and fitting that on a portrait phone is width-constrained — it
- * leaves the contiguous states about a hundred pixels across, with the smaller
- * ones too small to hit. So the box covers the bulk of the regions and lets
+ * longitude, and fitting that on a portrait phone is width-constrained. It
+ * leaves the contiguous states about a hundred pixels across. The smaller
+ * ones are then too small to hit. So the box covers the bulk of the regions and lets
  * distant ones sit off-frame, reachable by dragging. A quiz whose regions are
  * genuinely spread out, like the world, keeps them all: the trim only applies
  * while a clear majority of regions remain.

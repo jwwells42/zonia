@@ -19,7 +19,7 @@ export const REGIONS = {
 	'/us': { label: 'United States', dataset: 'us', pov: [34, -97, 1] },
 	'/us/northeast': { label: 'Northeast', dataset: 'us-ne', pov: [43, -74, 0.5] },
 	'/us/south': { label: 'South', dataset: 'us-s', pov: [33, -91, 0.75] },
-	// Was [43, -74] — the same point as the Northeast, which put the Midwest
+	// Was [43, -74], the same point as the Northeast. That put the Midwest
 	// quiz's opening view over New York.
 	'/us/midwest': { label: 'Midwest', dataset: 'us-mw', pov: [43, -92, 0.7] },
 	// Was [37, -95] (Kansas). The West reaches Alaska and Hawaii, so it needs to
@@ -31,7 +31,7 @@ export const REGIONS = {
 	'/middle-east': { label: 'Middle East', dataset: 'me', pov: [29, 47, 1.4] },
 	'/north-america': { label: 'North America', dataset: 'na', pov: [39, -95, 1.4] },
 	'/south-america': { label: 'South America', dataset: 'sa', pov: [-25, -55, 1.4] },
-	// Built by the pipeline and playable, but deliberately absent from NAV — the
+	// Built by the pipeline and playable, but deliberately absent from NAV. The
 	// original site had the data without ever linking to it.
 	'/oceania': { label: 'Oceania', dataset: 'oceania', pov: [-25, 140, 1.4] },
 	'/world': { label: 'World', dataset: 'world', pov: [0, 0, 1.4] }

@@ -8,7 +8,7 @@
 </script>
 
 <svelte:head>
-	<title>Version B — Zonia</title>
+	<title>Version B | Zonia</title>
 </svelte:head>
 
 <MapGlobe dataset={region.dataset} pov={region.pov} label={region.label} />

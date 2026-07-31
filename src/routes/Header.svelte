@@ -128,7 +128,7 @@
 
 	.navbar a {
 		display: block;
-		/* >=44px tall at every breakpoint — the old 16px padding on a 15px font
+		/* >=44px tall at every breakpoint. The old 16px padding on a 15px font
 		   left taps landing between targets. */
 		padding: 0.75rem 0.9rem;
 		min-height: 44px;

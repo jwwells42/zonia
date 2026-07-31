@@ -7,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>{region ? `${region.label} — Zonia` : 'Zonia'}</title>
+	<title>{region ? `${region.label} | Zonia` : 'Zonia'}</title>
 </svelte:head>
 
 {#if region}

@@ -11,7 +11,7 @@
  *  - Labels hid at score >= 1 while mastery needed 2, so a half-learned region
  *    lost its label.
  *  - The win check keyed off the running score, which also decrements on
- *    mistakes — so a player could master every region and still not win.
+ *    mistakes. A player could master every region and still not win.
  *
  * Winning is now defined solely as "every region mastered". Score is a separate,
  * purely cosmetic tally.
@@ -79,7 +79,7 @@ export function createQuiz(names, random = Math.random) {
 			state.score++;
 			pickTarget();
 		} else {
-			// Penalise the running score, never the target's progress — that used
+			// Penalise the running score, never the target's progress. That used
 			// to let mistakes inflate how many correct clicks a region demanded.
 			state.score = Math.max(0, state.score - 1);
 		}

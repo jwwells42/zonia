@@ -6,7 +6,7 @@
 	 * MapLibre locates its worker with `new URL('./maplibre-gl-worker.mjs',
 	 * import.meta.url)`. That path is assembled at runtime, so no bundler can see
 	 * it: Vite inlines the library into a hashed chunk and the worker 404s beside
-	 * it. Without a worker the map never fires 'load' and never errors — it just
+	 * it. Without a worker the map never fires 'load' and never errors. It just
 	 * sits there.
 	 *
 	 * `?worker&url` is the fix rather than `?url`, because the worker itself
@@ -24,8 +24,8 @@
 
 	/**
 	 * Same contract as Globe.svelte so the two are swappable behind one route.
-	 * `pov` is accepted for that reason but only its centre is meaningful here —
-	 * the opening zoom comes from fitting the data, not from globe.gl's camera
+	 * `pov` is accepted for that reason but only its centre is meaningful here.
+	 * The opening zoom comes from fitting the data, not from globe.gl's camera
 	 * altitude, which does not map onto MapLibre zoom by any stable factor.
 	 */
 	let { dataset, pov = [37, -95, 0.7], label = '' } = $props();
@@ -45,6 +45,14 @@
 	let confettiAmount = $state(0);
 	let won = $state(false);
 
+	/**
+	 * Hover label, matching what globe.gl puts on version A so the two can be
+	 * compared fairly. Like A's, it names only regions the player has yet to
+	 * learn. Once a region is mastered its label stops giving the answer away.
+	 */
+	let hoverLabel = $state('');
+	let labelAt = $state({ x: 0, y: 0 });
+
 	setWorkerUrl(maplibreWorkerUrl);
 
 	let map;
@@ -55,7 +63,10 @@
 	/** feature-state is keyed by name thanks to promoteId, so no id bookkeeping. */
 	const setState = (name, state) => map?.setFeatureState({ source: 'regions', id: name }, state);
 
-	function setHover(name) {
+	function setHover(name, point) {
+		hoverLabel = name && !quiz.state.mastered(name) ? name : '';
+		if (point) labelAt = { x: point.x, y: point.y };
+
 		if (hoveredName === name) return;
 		if (hoveredName) setState(hoveredName, { hover: false });
 		hoveredName = name;
@@ -85,6 +96,10 @@
 		learned = quiz.state.masteredCount;
 
 		setState(name, result.correct ? { correct: true } : { wrong: true });
+		// Drop the label the moment the region is learned, rather than leaving a
+		// stale answer under a stationary cursor.
+		if (hoveredName && quiz.state.mastered(hoveredName)) hoverLabel = '';
+
 		clearTimeout(feedbackTimer);
 		feedbackTimer = setTimeout(() => {
 			setState(name, { correct: false, wrong: false });
@@ -98,7 +113,7 @@
 			confetti = confettiAmount > 0;
 			instruction = 'WINNER!';
 		} else if (result.correct) {
-			instruction = `Good job — that was ${name}. Now find ${result.target}.`;
+			instruction = `Good job. That was ${name}. Now find ${result.target}.`;
 		} else {
 			instruction = `That was ${name}. Find ${result.target}.`;
 		}
@@ -145,7 +160,7 @@
 				map.on('error', (e) => reject(e.error ?? new Error('Map failed to load')))
 			);
 
-			map.on('mousemove', REGION_FILL_LAYER, (e) => setHover(e.features[0]?.id ?? null));
+			map.on('mousemove', REGION_FILL_LAYER, (e) => setHover(e.features[0]?.id ?? null, e.point));
 			map.on('mouseleave', REGION_FILL_LAYER, () => setHover(null));
 			map.on('click', (e) => answer(regionAt(e.point)));
 
@@ -153,7 +168,7 @@
 			if (cancelled) return;
 			ready = true;
 		})().catch((err) => {
-			instruction = `Something went wrong loading this map. ${err.message}`;
+			instruction = `This map did not load. ${err.message}`;
 			ready = true;
 		});
 
@@ -192,6 +207,10 @@
 
 	<div id="map" bind:this={containerEl}></div>
 
+	{#if hoverLabel}
+		<div class="tooltip" style:left="{labelAt.x}px" style:top="{labelAt.y}px">{hoverLabel}</div>
+	{/if}
+
 	{#if !ready}
 		<div id="loading">
 			<p class="loading-label">Loading {label || dataset}…</p>
@@ -222,6 +241,24 @@
 	/* Let the starfield behind the canvas show through around the globe. */
 	#map :global(.maplibregl-canvas) {
 		background: transparent;
+	}
+
+	/* Deliberately mirrors globe.gl's own tooltip (float-tooltip) so the A/B is
+	   not decided by one version having nicer labels than the other. */
+	.tooltip {
+		position: absolute;
+		z-index: 1;
+		width: max-content;
+		max-width: max(50%, 150px);
+		padding: 3px 5px;
+		border-radius: 3px;
+		font-family: Poppins, sans-serif;
+		font-size: 12px;
+		color: #eee;
+		background: rgba(0, 0, 0, 0.6);
+		pointer-events: none;
+		/* Sits above the pointer, so a finger does not cover its own label. */
+		transform: translate(-50%, calc(-100% - 12px));
 	}
 
 	#hud {

@@ -9,15 +9,12 @@
 </script>
 
 <svelte:head>
-	<title>Help us test — Zonia</title>
+	<title>Help us test | Zonia</title>
 </svelte:head>
 
 <div class="lab">
 	<h1>Two versions of the same quiz</h1>
-	<p class="lead">
-		Both are the United States quiz. Play each one for a minute or two, then tell us what you
-		noticed.
-	</p>
+	<p class="lead">Both are the United States quiz. Play each one. Then tell us what you noticed.</p>
 
 	<div class="picker">
 		{#each versions as version (version.letter)}
@@ -30,14 +27,13 @@
 
 	<h2>What we'd like to know</h2>
 	<ul>
-		<li>Did one feel faster to start, or smoother to drag and spin?</li>
-		<li>Was one easier to tap accurately — especially small states like Rhode Island?</li>
-		<li>Which looked better to you?</li>
-		<li>Anything that felt broken, confusing, or slow?</li>
+		<li>Did one start faster?</li>
+		<li>Was one smoother to drag and spin?</li>
+		<li>Was one easier to tap? Try a small state like Rhode Island.</li>
+		<li>Which looked better?</li>
+		<li>Did anything feel broken or slow?</li>
 	</ul>
-	<p class="note">
-		It helps to know what you played on — phone, Chromebook, classroom board, or desktop.
-	</p>
+	<p class="note">Tell us what you played on. Phone, Chromebook, classroom board, or desktop.</p>
 </div>
 
 <style>

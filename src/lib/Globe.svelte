@@ -24,14 +24,14 @@
 	 * three-globe decides whether to build side-wall geometry purely from whether
 	 * a side colour is set (`hasSide = !!(sideColor || sideMaterial)` gates
 	 * `includeSides` on ConicPolygonGeometry). Measured on these datasets, those
-	 * walls were ~67% of every triangle — 34,507 down to 11,381 for `world` — and
-	 * triangle count drives both load tessellation and per-pointer-move raycasting.
+	 * walls were ~67% of every triangle. 34,507 down to 11,381 for `world`. Triangle
+	 * count drives both load tessellation and per-pointer-move raycasting.
 	 *
 	 * Small islands look better for it too: Hawaii and the Aleutians used to be
 	 * mostly side wall seen edge-on, which read as smears hanging past the globe's
 	 * silhouette rather than as land.
 	 *
-	 * The altitude is not quite zero — it lifts the caps clear of the globe sphere
+	 * The altitude is not quite zero. It lifts the caps clear of the globe sphere
 	 * so the two do not z-fight.
 	 */
 	const ALTITUDE = 0.01;
@@ -40,7 +40,7 @@
 	let containerEl;
 
 	// Only values the template renders are $state. Everything globe.gl touches
-	// stays a plain variable — Svelte 5's deep proxies would wrap thousands of
+	// stays a plain variable. Svelte 5's deep proxies would wrap thousands of
 	// GeoJSON coordinate arrays and make every render path allocate.
 	let score = $state(0);
 	let learned = $state(0);
@@ -57,7 +57,7 @@
 	let hovered = null;
 	/**
 	 * Transient per-polygon click feedback: name -> 'correct' | 'wrong'.
-	 * Deliberately a plain Map, not a SvelteMap — nothing in the template reads
+	 * Deliberately a plain Map, not a SvelteMap. Nothing in the template reads
 	 * it, and the repaint it drives is pushed to three.js by hand. Reactivity here
 	 * would only add proxy overhead on a hot path.
 	 */
@@ -141,7 +141,7 @@
 			confetti = confettiAmount > 0;
 			instruction = 'WINNER!';
 		} else if (result.correct) {
-			instruction = `Good job — that was ${name}. Now find ${result.target}.`;
+			instruction = `Good job. That was ${name}. Now find ${result.target}.`;
 		} else {
 			// On touch there is no hover, so naming what was actually tapped is the
 			// only feedback the player gets about where their finger landed.
@@ -198,7 +198,7 @@
 				.polygonsTransitionDuration(0)
 				.polygonCapCurvatureResolution(curvatureFor(pov[2]))
 				.polygonAltitude(ALTITUDE)
-				// Falsy on purpose — this is what stops the side geometry being built.
+				// Falsy on purpose. This is what stops the side geometry being built.
 				.polygonSideColor(() => null)
 				.polygonStrokeColor(() => '#111')
 				.polygonCapMaterial(materialFor)
@@ -235,7 +235,7 @@
 			resizeObserver = new ResizeObserver(() => fit());
 			resizeObserver.observe(containerEl);
 		})().catch((err) => {
-			instruction = `Something went wrong loading this map. ${err.message}`;
+			instruction = `This map did not load. ${err.message}`;
 			ready = true;
 		});
 

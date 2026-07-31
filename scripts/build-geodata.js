@@ -37,20 +37,20 @@ const US_ZIP = join(cacheDir, 'cb_2023_us_state_500k.zip');
 const US_FILE = join(cacheDir, 'us_states_500k.geojson');
 
 /**
- * Target vertex count for the decoded geometry of each dataset — that is, what
+ * Target vertex count for the decoded geometry of each dataset. That is what
  * three-globe actually tessellates. Budgets are tuned to the zoom each quiz is
  * viewed at: the world sits far enough out that ~20k reads as smooth, while a
  * single US region fills the screen and needs proportionally more per feature.
  */
 const BUDGETS = {
 	// Most of the visual gain over the old 1:110m data comes from the source
-	// having small islands at all, not from raw vertex count — so these stay
+	// having small islands at all, not from raw vertex count. So these stay
 	// modest. Every vertex here is tessellated at load and raycast on every
 	// pointer move, and `world` pays that across 177 features at once.
 	//
 	// `world` is pinned near the vertex count of the 1:110m data it replaces
 	// (10,654). Measured on a 4x-throttled CPU, going much above that made the
-	// world quiz slower to load and hover than the original — the one view where
+	// world quiz slower to load and hover than the original. The one view where
 	// extra detail does not pay for itself.
 	world: 11500,
 	africa: 8000,
@@ -122,7 +122,7 @@ function collect(key, roster, sources) {
 	if (unmatched.length) {
 		throw new Error(
 			`${key}: source is missing ${unmatched.length} roster member(s): ${unmatched.join(', ')}\n` +
-				`The roster is the contract — fix the source join rather than editing the roster, ` +
+				`The roster is the contract. Fix the source join rather than editing the roster, ` +
 				`unless the quiz content is meant to change.`
 		);
 	}
@@ -140,7 +140,7 @@ function collect(key, roster, sources) {
 async function simplifyTo(fc, percentage) {
 	const cmd = [
 		'-i in.json',
-		// `fields=` is required — a bare `name` collides with mapshaper's own `name=` layer option.
+		// `fields=` is required. A bare `name` collides with mapshaper's own `name=` layer option.
 		'-dissolve fields=name',
 		`-simplify visvalingam weighted keep-shapes ${percentage}%`,
 		'-clean',
@@ -177,7 +177,7 @@ async function buildDataset(key, fc, budget) {
 
 	// keep-shapes sets a floor: tiny islands keep their minimum ring regardless
 	// of budget, so a dataset full of small features can overshoot. That is the
-	// correct trade — dropping them would remove clickable answers.
+	// correct trade. Dropping them would remove clickable answers.
 	const names = new Set(best.decoded.features.map((f) => f.properties.name));
 	const expected = Object.keys(fc.features.reduce((m, f) => ((m[f.properties.name] = 1), m), {}));
 	const lost = expected.filter((n) => !names.has(n));
