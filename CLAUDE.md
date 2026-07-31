@@ -91,18 +91,32 @@ at `/lab`, which presents both as neutral "A" and "B" for testers.
 Both take the same props and both drive `quiz.js` unchanged. That is the point. If a renderer
 change ever requires editing `quiz.js`, the separation has been broken.
 
-Measured on `/us` with a 4× CPU throttle, MapLibre against flat globe.gl:
+### What the numbers actually say
 
-|                 | globe.gl | MapLibre   |
-| --------------- | -------- | ---------- |
-| transfer        | 1490 KB  | 1205 KB    |
-| load scripting  | 3625 ms  | **317 ms** |
-| hover scripting | 2157 ms  | **275 ms** |
+Measured on `/world`, which is the hard case at 177 regions. Frame rate is sampled while dragging
+the globe, because lag is a frame-rate experience. Real GPU unless noted.
 
-The load figure is the interesting one. MapLibre tiles and simplifies GeoJSON in a Web Worker, so
-that work leaves the main thread entirely; three-globe tessellates synchronously. This matters most
-on the weakest target hardware. It also means added detail, rivers for example, is close to free
-rather than permanently more expensive.
+| profile                     | A globe.gl  | B MapLibre  |
+| --------------------------- | ----------- | ----------- |
+| desktop 1280x820            | 60 fps      | 60 fps      |
+| 4K viewport, 3840x2160      | 60 fps      | 60 fps      |
+| **weak CPU, 6x throttle**   | **10 fps**  | **60 fps**  |
+| **weak GPU, software rast** | **8.6 fps** | **7.5 fps** |
+| time to playable, 6x CPU    | 5363 ms     | 1888 ms     |
+
+Read that carefully before assuming MapLibre is simply faster.
+
+**MapLibre's advantage is CPU bound, not GPU bound.** It tiles and simplifies GeoJSON in a Web
+Worker, and it picks features only on click. three-globe tessellates on the main thread and
+raycasts every polygon on every pointer move. Starve the CPU and A collapses while B does not.
+
+Starve the GPU instead and **both collapse together**. B is not a fix for a fill-rate problem. If a
+device is slow because its GPU is weak, changing renderer will not save it. Lowering the polygon
+count or the resolution would be the lever there.
+
+On healthy hardware the two are indistinguishable, which is why desktop testing finds nothing.
+
+Use `?stats` on a real device to find out which bottleneck it has. See below.
 
 Two things to know before touching `MapGlobe.svelte`:
 
@@ -113,6 +127,27 @@ Two things to know before touching `MapGlobe.svelte`:
 'es'` to match.
 - **Always subscribe to the map's `error` event.** MapLibre reports style and source failures
   through an event rather than throwing, so an unsubscribed failure looks exactly like a slow load.
+- **MapLibre raises the browser floor. globe.gl does not.** `maplibre-gl-shared.mjs` calls
+  `Array.prototype.at` (Chromium 92) and `Object.hasOwn` (Chromium 93). It runs on the main thread
+  and in the worker, which are separate global scopes, so `src/lib/polyfills.js` is imported in
+  both. three.js and globe.gl need neither.
+- **`npm run build` asserts the worker survived.** `scripts/check-build.js` checks the chunk is
+  large enough to contain MapLibre, that it assigns `self.worker`, and that the polyfills come
+  first. This exists because the worker has already been silently removed twice, once by a bundler
+  path it could not see and once by tree shaking, and the app gives no sign either time.
+
+### Trying a renderer, and reading a device
+
+Any quiz runs on either engine. `?r=maplibre` opts into MapLibre. Without it you get the shipping
+renderer.
+
+- `/world` and `/world?r=maplibre`
+- `?stats` adds an on-screen readout: frame rate while dragging, worst frame, time to playable, the
+  device's real GPU, its Chromium version, resolution and pixel ratio, and whether the methods
+  MapLibre needs are present. There is a copy button.
+
+Send someone `/world?stats` and `/world?r=maplibre&stats` to get numbers off their hardware instead
+of an impression.
 
 ## Adding or changing a quiz
 

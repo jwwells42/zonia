@@ -1,10 +1,23 @@
 <script>
-	// Deliberately labelled A and B rather than "current" and "new". Testers who
-	// know which one is the replacement tend to report on that instead of on what
-	// they actually experienced.
-	const versions = [
-		{ letter: 'A', href: '/us' },
-		{ letter: 'B', href: '/lab/maplibre' }
+	// Labelled A and B, not "current" and "new". Testers who know which one is
+	// the replacement report on that instead of on what they experienced.
+	//
+	// The world quiz leads because it is the hard case. It has 177 regions where
+	// the United States has 50, and it is the one quiz where extra detail stopped
+	// paying for itself.
+	const tests = [
+		{
+			title: 'World',
+			note: 'The main test. Please play this one.',
+			a: '/world',
+			b: '/world?r=maplibre'
+		},
+		{
+			title: 'United States',
+			note: 'Optional. Only if you have time.',
+			a: '/us',
+			b: '/us?r=maplibre'
+		}
 	];
 </script>
 
@@ -14,22 +27,24 @@
 
 <div class="lab">
 	<h1>Two versions of the same quiz</h1>
-	<p class="lead">Both are the United States quiz. Play each one. Then tell us what you noticed.</p>
+	<p class="lead">Play version A. Then play version B. Then tell us what you noticed.</p>
 
-	<div class="picker">
-		{#each versions as version (version.letter)}
-			<a class="card" href={version.href}>
-				<span class="letter">{version.letter}</span>
-				<span class="go">Play version {version.letter}</span>
-			</a>
-		{/each}
-	</div>
+	{#each tests as test (test.title)}
+		<section>
+			<h2>{test.title}</h2>
+			<p class="note">{test.note}</p>
+			<div class="picker">
+				<a class="card" href={test.a}><span class="letter">A</span><span>Play A</span></a>
+				<a class="card" href={test.b}><span class="letter">B</span><span>Play B</span></a>
+			</div>
+		</section>
+	{/each}
 
 	<h2>What we'd like to know</h2>
 	<ul>
 		<li>Did one start faster?</li>
 		<li>Was one smoother to drag and spin?</li>
-		<li>Was one easier to tap? Try a small state like Rhode Island.</li>
+		<li>Was one easier to tap? Try a small country.</li>
 		<li>Which looked better?</li>
 		<li>Did anything feel broken or slow?</li>
 	</ul>
@@ -56,7 +71,7 @@
 	}
 
 	h2 {
-		margin: 2.5rem 0 0.75rem;
+		margin: 2.5rem 0 0.25rem;
 		font-size: 1.15rem;
 	}
 
@@ -66,11 +81,15 @@
 		opacity: 0.85;
 	}
 
+	section h2 {
+		margin-bottom: 0.25rem;
+	}
+
 	.picker {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 		gap: 1rem;
-		margin: 2rem 0 0;
+		margin: 1rem 0 0;
 	}
 
 	.card {
@@ -78,9 +97,9 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		min-height: 8rem;
-		padding: 1.5rem;
+		gap: 0.4rem;
+		min-height: 7rem;
+		padding: 1.25rem;
 		border: 1px solid #24405c;
 		border-radius: 12px;
 		background: #0e1c2e;
@@ -96,13 +115,9 @@
 
 	.letter {
 		font-family: 'Anta', sans-serif;
-		font-size: 3rem;
+		font-size: 2.5rem;
 		line-height: 1;
 		color: #f58622;
-	}
-
-	.go {
-		font-size: 1rem;
 	}
 
 	ul {
@@ -116,7 +131,7 @@
 	}
 
 	.note {
-		margin-top: 1.5rem;
+		margin: 0;
 		font-size: 0.95rem;
 		opacity: 0.7;
 	}

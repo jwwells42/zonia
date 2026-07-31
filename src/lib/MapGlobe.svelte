@@ -2,6 +2,9 @@
 	import { onMount, tick } from 'svelte';
 	import { Map as MapLibreMap, setWorkerUrl } from 'maplibre-gl';
 	import 'maplibre-gl/dist/maplibre-gl.css';
+	// Installs Array.prototype.at and Object.hasOwn for the main thread. MapLibre
+	// needs both and older classroom hardware lacks them.
+	import './polyfills.js';
 	/**
 	 * MapLibre locates its worker with `new URL('./maplibre-gl-worker.mjs',
 	 * import.meta.url)`. That path is assembled at runtime, so no bundler can see
@@ -13,8 +16,11 @@
 	 * imports `./maplibre-gl-shared.mjs`. Plain `?url` copies the one file without
 	 * its dependency and the failure simply moves inside the worker, where it is
 	 * invisible. `?worker` bundles the worker with everything it needs.
+	 *
+	 * The entry is our own shim, not MapLibre's worker directly, so the worker's
+	 * separate global scope gets the polyfills too.
 	 */
-	import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+	import maplibreWorkerUrl from './maplibreWorker.js?worker&url';
 	import { feature } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
