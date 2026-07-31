@@ -2,3 +2,7 @@ node_modules
 .svelte-kit
 build
 .vercel
+
+# Upstream geodata downloads. Re-fetched on demand by `npm run geodata`;
+# the built output in static/geo/ is what gets committed.
+scripts/.cache

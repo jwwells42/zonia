@@ -1,0 +1,7 @@
+.svelte-kit
+.vercel
+build
+node_modules
+package-lock.json
+scripts/.cache
+static/geo

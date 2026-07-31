@@ -23,7 +23,9 @@
 	let complete = $state(false);
 
 	onMount(() => {
-		if (!destroyOnComplete || infinite || iterationCount === 'infinite') return;
+		// iterationCount is a CSS animation-iteration-count, so it is a number or
+		// the string 'infinite'; compare as a string to cover both.
+		if (!destroyOnComplete || infinite || String(iterationCount) === 'infinite') return;
 		setTimeout(() => (complete = true), (duration + delay[1]) * iterationCount);
 	});
 
@@ -32,15 +34,14 @@
 	}
 
 	function getColor() {
-		if (colorArray.length)
-			return colorArray[Math.round(Math.random() * (colorArray.length - 1))];
+		if (colorArray.length) return colorArray[Math.round(Math.random() * (colorArray.length - 1))];
 		else return `hsl(${Math.round(randomBetween(colorRange[0], colorRange[1]))}, 75%, 50%)`;
 	}
 </script>
 
 {#if !complete}
 	<div class="confetti-holder" class:rounded class:cone class:no-gravity={noGravity}>
-		{#each { length: amount } as _}
+		{#each { length: amount }, i (i)}
 			<div
 				class="confetti"
 				style="
@@ -150,7 +151,7 @@
 		animation-timing-function: ease-out;
 	}
 
-	@media (prefers-reduced-motion) {
+	@media (prefers-reduced-motion: reduce) {
 		.confetti,
 		.confetti::before {
 			animation: none;
