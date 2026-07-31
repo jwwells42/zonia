@@ -3,10 +3,61 @@
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="theme-color" content="#c82689" />
+		<meta
+			name="description"
+			content="Learn world and United States geography. Find regions on a 3D globe."
+		/>
+		<style>
+			/* Painted from the HTML itself, before any JavaScript runs. The app is
+			   client-rendered and its bundle carries a WebGL engine, so without this
+			   the first thing a visitor sees is a blank page for as long as that
+			   takes to arrive and parse. Removed by the app once it mounts. */
+			#boot {
+				position: fixed;
+				inset: 0;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				gap: 1.25rem;
+				background: #060a18;
+				color: #fff;
+				font-family: system-ui, sans-serif;
+			}
+			#boot .mark {
+				font-size: 2.5rem;
+				font-weight: 700;
+				color: #f58622;
+				letter-spacing: 0.02em;
+			}
+			#boot .spinner {
+				width: 2rem;
+				height: 2rem;
+				border: 3px solid rgba(255, 255, 255, 0.15);
+				border-top-color: #c82689;
+				border-radius: 50%;
+				animation: boot-spin 900ms linear infinite;
+			}
+			@keyframes boot-spin {
+				to {
+					transform: rotate(360deg);
+				}
+			}
+			@media (prefers-reduced-motion: reduce) {
+				#boot .spinner {
+					animation: none;
+				}
+			}
+		</style>
 		%sveltekit.head%
 	</head>
-	<body data-sveltekit-prerender="false">
+	<body data-sveltekit-preload-data="hover">
+		<div id="boot">
+			<div class="mark">Zonia</div>
+			<div class="spinner" role="status" aria-label="Loading"></div>
+		</div>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

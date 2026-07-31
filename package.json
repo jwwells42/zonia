@@ -4,17 +4,34 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview"
+		"build": "vite build && node scripts/check-build.js",
+		"preview": "vite preview",
+		"geodata": "node scripts/build-geodata.js",
+		"test": "vitest run",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write ."
 	},
 	"devDependencies": {
+		"@eslint/js": "^10.0.1",
 		"@sveltejs/adapter-vercel": "^5.7.0",
 		"@sveltejs/kit": "^2.21.1",
 		"@sveltejs/vite-plugin-svelte": "^5.0.3",
+		"eslint": "^10.8.0",
+		"eslint-plugin-svelte": "^3.22.0",
+		"globals": "^17.8.0",
+		"mapshaper": "^0.7.49",
+		"prettier": "^3.9.6",
+		"prettier-plugin-svelte": "^4.1.1",
 		"svelte": "^5.28.2",
-		"vite": "^6.3.5"
+		"svelte-check": "^4.7.4",
+		"typescript": "^5.9.3",
+		"vite": "^6.3.5",
+		"vitest": "^4.1.10"
 	},
 	"dependencies": {
-		"globe.gl": "^2.32.1"
+		"globe.gl": "^2.32.1",
+		"maplibre-gl": "^6.1.0",
+		"topojson-client": "^3.1.0"
 	}
 }
