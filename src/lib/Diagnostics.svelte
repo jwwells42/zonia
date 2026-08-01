@@ -29,6 +29,22 @@
 	let device = $state(null);
 	let copied = $state(false);
 	let collapsed = $state(false);
+	/**
+	 * Actual drawing buffer, which is what the GPU pays for. Read from the canvas
+	 * rather than computed, so a `?dpr` override is confirmed to have taken effect
+	 * instead of assumed.
+	 *
+	 * Frame rate on its own does not say whether the renderer drew anything:
+	 * requestAnimationFrame keeps firing at 60 either way. There was an attempt
+	 * here to detect that by sampling the canvas, and it does not work. Both
+	 * renderers create their context without `preserveDrawingBuffer`, so the
+	 * buffer is cleared once the frame is composited, and reading it afterwards
+	 * through drawImage returns transparent pixels whether or not the globe is on
+	 * screen. It reported BLANK over a perfectly good globe. Telling a tester
+	 * their working render is broken is worse than saying nothing, so the check is
+	 * gone. A person standing at the panel can see whether there is a globe.
+	 */
+	let buffer = $state('');
 
 	const round = (n, places = 0) => Number(n.toFixed(places));
 
@@ -86,6 +102,7 @@
 					`${device.browser}`,
 					`gpu ${device.gpu}`,
 					`viewport ${device.viewport} screen ${device.screen} dpr ${device.dpr}`,
+					`drawing buffer ${buffer || 'unknown'}`,
 					`cores ${device.cores} webgl2 ${device.webgl2} moduleWorker ${device.moduleWorker}`,
 					`Array.at ${device.arrayAt} Object.hasOwn ${device.objectHasOwn}`
 				].join('\n')
@@ -154,9 +171,20 @@
 			}
 		}, 50);
 
+		// Polled rather than read once, because the canvas does not exist until the
+		// renderer has built itself.
+		const draws = setInterval(() => {
+			const canvas = document.querySelector('canvas');
+			if (canvas?.width) {
+				const megapixels = (canvas.width * canvas.height) / 1e6;
+				buffer = `${canvas.width}x${canvas.height} (${round(megapixels, 1)} MP)`;
+			}
+		}, 1000);
+
 		return () => {
 			cancelAnimationFrame(raf);
 			clearInterval(poll);
+			clearInterval(draws);
 		};
 	});
 </script>
