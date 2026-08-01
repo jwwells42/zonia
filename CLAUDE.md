@@ -81,15 +81,26 @@ testing where it matters.
 Reverting is cheap. That is what git is for. The risk of shipping something imperfect is smaller
 than the cost of not being able to try it.
 
-- Work on a branch, not `main`.
-- Commit in logical chunks, with a message that says why. The Writing rules above apply to commit
-  messages.
-- Push the branch when the work stands up: `npm test`, `npm run check` and `npm run lint` clean, and
-  `npm run build` passing its own checks.
-- **Merging to `main` deploys to production.** Vercel builds the repo's default branch. Say so
-  plainly when proposing a merge, because the audience is live classrooms.
-- A pull request gets a Vercel preview URL. That is the right target for something that needs
-  trying on a device before it reaches students.
+**The site is <https://zonia-seven.vercel.app>, built from `main`.** That is the only URL that works
+on a locked-down classroom panel or in someone else's hands, so reaching it is what "done" means.
+
+**Getting to `main` is part of finishing a change, not a separate favour to ask for.** A change that
+stops at a branch cannot be tested, and this project is only ever really tested on hardware.
+
+The cycle:
+
+1. Commit in logical chunks, with a message that says why. The Writing rules above apply to commit
+   messages.
+2. `npm test`, `npm run check`, `npm run lint`, and `npm run build` all clean.
+3. Push, then merge to `main`. Say plainly that this is a production deploy, because the audience is
+   live classrooms. Then say what to look at on the panel.
+
+Revert with `git revert -m 1 <merge-commit>` on `main` and push. Vercel redeploys.
+
+**Vercel preview URLs are not usable here.** Deployment Protection is on, so a preview link
+redirects to `vercel.com/login`. It works for whoever owns the Vercel account and for nobody else,
+which means it is no good for a panel or for handing to a teacher. Do not offer a preview as if it
+were a way to test. Until that setting changes, `main` is the only route to a testable URL.
 
 ## Layout
 
