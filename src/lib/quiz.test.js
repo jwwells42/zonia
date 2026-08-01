@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createQuiz, MASTERY } from './quiz.js';
+import { createQuiz, MASTERY, SCAFFOLD } from './quiz.js';
 
 /** Deterministic RNG so target selection is reproducible. */
 const seeded = (values) => {
@@ -41,13 +41,47 @@ describe('createQuiz', () => {
 		expect(quiz.state.mastered('Alpha')).toBe(true);
 	});
 
-	it('hides a label only once the region is actually mastered', () => {
-		// The old code hid labels at one correct click while mastery took two, so
-		// a half-learned region lost its label with clicks still to go.
+	it('does not master a region on one correct click', () => {
 		const quiz = createQuiz(['Alpha']);
 		quiz.click('Alpha');
 		expect(quiz.state.mastered('Alpha')).toBe(false);
 		expect(quiz.state.remaining).toContain('Alpha');
+	});
+
+	it('shows a name until the region has been found once', () => {
+		const quiz = createQuiz(['Alpha']);
+		expect(quiz.state.scaffolded('Alpha')).toBe(true);
+		quiz.click('Alpha');
+		expect(quiz.state.scaffolded('Alpha')).toBe(false);
+	});
+
+	it('drops the scaffold before mastery, not with it', () => {
+		// The whole point of the progression: one unaided click has to remain
+		// after the name goes away, or the label never helps anyone.
+		expect(SCAFFOLD).toBeLessThan(MASTERY);
+		const quiz = createQuiz(['Alpha']);
+		quiz.click('Alpha');
+		expect(quiz.state.scaffolded('Alpha')).toBe(false);
+		expect(quiz.state.mastered('Alpha')).toBe(false);
+	});
+
+	it('keeps the name up after a wrong answer', () => {
+		// Wrong answers cost score and nothing else. Taking the scaffold away for
+		// guessing would punish the student exactly when they need the help.
+		const quiz = createQuiz(['Alpha', 'Beta']);
+		const wrong = quiz.state.target === 'Alpha' ? 'Beta' : 'Alpha';
+		quiz.click(wrong);
+		expect(quiz.state.scaffolded('Alpha')).toBe(true);
+		expect(quiz.state.scaffolded('Beta')).toBe(true);
+	});
+
+	it('scaffolds each region independently', () => {
+		const quiz = createQuiz(['Alpha', 'Beta'], seeded([0]));
+		const first = quiz.state.target;
+		quiz.click(first);
+		const other = first === 'Alpha' ? 'Beta' : 'Alpha';
+		expect(quiz.state.scaffolded(first)).toBe(false);
+		expect(quiz.state.scaffolded(other)).toBe(true);
 	});
 
 	it('wins only when every region is mastered', () => {

@@ -7,11 +7,25 @@
 	import { feature } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
+	import { labelAnchors, placeLabels } from './labels.js';
 	import { datasetUrl } from './regions.js';
 	import globeSkin from '$lib/images/earth-night.webp';
 	import globeBackground from '$lib/images/night-sky.webp';
 
-	let { dataset, pov = [37, -95, 0.7], label = '' } = $props();
+	let {
+		dataset,
+		pov = [37, -95, 0.7],
+		label = '',
+		pixelRatio = Math.min(2, window.devicePixelRatio || 1),
+		/**
+		 * Starting state for region names, from `?labels`. The in-quiz button
+		 * overrides it from here on, so a teacher's link sets the opening position
+		 * without locking a student out of changing it.
+		 */
+		labels = true,
+		/** Set false to drop the atmosphere glow and antialiasing. See `?fx=off`. */
+		effects = true
+	} = $props();
 
 	const CAP = '#4682b4'; // steelblue
 	const CAP_HOVER = '#f58622';
@@ -99,6 +113,99 @@
 	/** Re-runs the cap-material accessor without allocating a new closure. */
 	const repaint = () => world?.polygonCapMaterial(materialFor);
 
+	/** Must match the .region-label rule below, since text is measured against it. */
+	const LABEL_FONT = '12px Poppins, sans-serif';
+	/** Horizontal and vertical padding on a label box, from the same rule. */
+	const LABEL_PADDING = [8, 8];
+
+	/**
+	 * Real text metrics for a name, so collision uses the box that will actually
+	 * be drawn.
+	 *
+	 * Guessing a width from a character count is guessing twice over: too narrow
+	 * and labels overlap on screen after passing the collision test, too wide and
+	 * names are dropped that would have fitted. A 2D context measures the same
+	 * font the browser is about to lay out, and it runs once per region at load.
+	 */
+	function textMeasurer() {
+		const ctx = document.createElement('canvas').getContext('2d');
+		if (!ctx) return undefined;
+		ctx.font = LABEL_FONT;
+		return (name) => {
+			const m = ctx.measureText(name);
+			// Ascent and descent give the real cap-to-tail height of this string,
+			// which is tighter and truer than assuming a line box.
+			const height = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+			return {
+				width: m.width + LABEL_PADDING[0],
+				height: (height || 12) + LABEL_PADDING[1]
+			};
+		};
+	}
+
+	/**
+	 * How often label positions are recomputed while the globe is moving.
+	 *
+	 * Projecting every anchor and packing the survivors is far too much to do on
+	 * every frame, and it does not need to be. Labels trailing the globe by a
+	 * fraction of a second during a spin is invisible; a frame rate drop while
+	 * dragging is exactly what this app cannot afford.
+	 */
+	const LABEL_INTERVAL_MS = 90;
+
+	/**
+	 * Stable reference for "no labels", so turning them off repeatedly assigns the
+	 * same array and Svelte skips the update instead of re-rendering nothing.
+	 */
+	const NO_LABELS = Object.freeze([]);
+
+	/** Placed labels, in screen coordinates. The one globe value the template reads. */
+	let regionLabels = $state(NO_LABELS);
+	/**
+	 * Whether names are showing.
+	 *
+	 * Writable derived, so the URL sets the opening position and the button
+	 * overrides it from there. Navigating to a link that specifies `?labels`
+	 * re-derives and wins again, which is what a teacher handing out a link
+	 * expects.
+	 */
+	let labelsOn = $derived(labels);
+	/** Plain, not $state: thousands of coordinates went into these. */
+	let anchors = [];
+	let labelTimer;
+
+	function updateLabels() {
+		if (!world || !containerEl || !quiz) return;
+		if (!labelsOn) {
+			regionLabels = NO_LABELS;
+			return;
+		}
+
+		const { width, height } = containerEl.getBoundingClientRect();
+		// The camera always looks at the origin, so its position doubles as the
+		// direction the visible hemisphere faces.
+		const { x, y, z } = world.camera().position;
+		const length = Math.hypot(x, y, z) || 1;
+
+		regionLabels = placeLabels({
+			anchors,
+			project: (lat, lng) => world.getScreenCoords(lat, lng),
+			cameraDir: { x: x / length, y: y / length, z: z / length },
+			viewport: { width, height },
+			shouldLabel: (name) => quiz.state.scaffolded(name),
+			// "Find Germany" over a map showing every name but Germany's reads as
+			// Germany not being in the quiz.
+			priority: quiz.state.target
+		});
+	}
+
+	// Repack whenever names are switched on or off, from either source. Doing it
+	// here rather than in the click handler means the globe is never rebuilt.
+	$effect(() => {
+		labelsOn;
+		updateLabels();
+	});
+
 	/**
 	 * Curvature resolution is the angular step three-conic-polygon-geometry
 	 * subdivides caps at, so it trades triangles against how round a wide polygon
@@ -114,6 +221,7 @@
 		if (!world || !containerEl) return;
 		const { width, height } = containerEl.getBoundingClientRect();
 		if (width && height) world.width(width).height(height);
+		updateLabels();
 	}
 
 	function showFeedback(name, kind) {
@@ -134,6 +242,9 @@
 		score = quiz.state.score;
 		learned = quiz.state.masteredCount;
 		showFeedback(name, result.correct ? 'correct' : 'wrong');
+		// A correct click is what retires a region's name, so the labels have to be
+		// repacked: losing one frees space a crowded-out neighbour can now use.
+		updateLabels();
 
 		if (result.won) {
 			won = true;
@@ -151,6 +262,7 @@
 
 	onMount(() => {
 		let resizeObserver;
+		let cleanUpControls;
 		let cancelled = false;
 
 		(async () => {
@@ -165,33 +277,46 @@
 			const polygons = collection.features;
 			quiz = createQuiz(polygons.map(nameOf));
 			total = quiz.state.total;
+			// One pass over the geometry, here rather than per frame.
+			anchors = labelAnchors(polygons, { measure: textMeasurer() });
 
 			progress = 0.35;
 			instruction = `Find ${quiz.state.target}!`;
 			await tick();
 
-			// Decode textures up front. Left to globe.gl these load after first
-			// paint and pop in mid-game.
-			await Promise.all(
-				[globeSkin, globeBackground].map(
-					(src) =>
-						new Promise((resolve) => {
-							const img = new Image();
-							img.onload = () => img.decode().then(resolve, resolve);
-							img.onerror = resolve;
-							img.src = src;
-						})
-				)
-			);
+			// Decode the globe texture up front. Left to globe.gl it loads after
+			// first paint and pops in mid-game. The starfield is a CSS background
+			// now, so the browser fetches it alongside without our help.
+			await new Promise((resolve) => {
+				const img = new Image();
+				img.onload = () => img.decode().then(resolve, resolve);
+				img.onerror = resolve;
+				img.src = globeSkin;
+			});
 			if (cancelled) return;
 
 			progress = 0.6;
 			await tick();
 
-			world = new GlobeGL(globeEl)
+			world = new GlobeGL(globeEl, {
+				// Antialiasing is on by default in three-render-objects. Off is worth
+				// measuring on a weak mobile GPU, where it can cost real frames.
+				rendererConfig: { antialias: effects }
+			})
 				.pointOfView({ lat: pov[0], lng: pov[1], altitude: pov[2] }, 0)
 				.globeImageUrl(globeSkin)
-				.backgroundImageUrl(globeBackground)
+				/**
+				 * The starfield is a CSS background behind a transparent canvas, not a
+				 * `backgroundImageUrl`. That option wraps the whole scene in a second,
+				 * enormous textured sphere which repaints every pixel of the viewport
+				 * every frame, to show a backdrop that never moves. CSS draws it once.
+				 * MapGlobe.svelte has always done it this way; this brings the two in
+				 * line. The Earth itself is still `globeImageUrl` above.
+				 */
+				.backgroundColor('rgba(0,0,0,0)')
+				// A large alpha-blended sphere around the globe. Pretty, and blending
+				// over that area is not free on a mobile GPU.
+				.showAtmosphere(effects)
 				// Without this every accessor change spawns a Tween per polygon,
 				// which on a hover-driven accessor means allocating on every frame
 				// the pointer moves.
@@ -202,17 +327,21 @@
 				.polygonSideColor(() => null)
 				.polygonStrokeColor(() => '#111')
 				.polygonCapMaterial(materialFor)
-				.polygonLabel((polygon) =>
-					quiz.state.mastered(nameOf(polygon))
-						? ''
-						: `<p style="font-family: Poppins; font-size: 1em">${nameOf(polygon)}</p>`
-				)
+				// No polygonLabel. Names are drawn on the map by updateLabels instead
+				// of following the pointer, because hover does not exist on a touch
+				// panel and that is where this is used.
 				.onPolygonHover((polygon) => {
 					if (hovered === polygon) return;
 					hovered = polygon;
 					repaint();
 				})
 				.onPolygonClick(handleClick);
+
+			// three-render-objects sets this to Math.min(2, devicePixelRatio) at
+			// construction and offers no option for it, so it is overridden after the
+			// fact. Everything the globe draws is fill-rate work, so this number is
+			// the largest single lever on frame rate.
+			world.renderer().setPixelRatio(pixelRatio);
 
 			fit();
 			world.polygonsData(polygons);
@@ -232,6 +361,32 @@
 			progress = 1;
 			ready = true;
 
+			/**
+			 * Labels follow the camera on a timer rather than on every frame.
+			 *
+			 * OrbitControls fires `change` continuously through a drag, and the work
+			 * behind each update is a projection per region plus a collision pass.
+			 * Doing that 60 times a second on a classroom panel would cost more frames
+			 * than the labels are worth. `end` gives the settled positions once the
+			 * globe stops, so the throttle is never the last word.
+			 */
+			const controls = world.controls();
+			const onChange = () => {
+				if (labelTimer) return;
+				labelTimer = setTimeout(() => {
+					labelTimer = null;
+					updateLabels();
+				}, LABEL_INTERVAL_MS);
+			};
+			controls.addEventListener('change', onChange);
+			controls.addEventListener('end', updateLabels);
+			cleanUpControls = () => {
+				controls.removeEventListener('change', onChange);
+				controls.removeEventListener('end', updateLabels);
+			};
+
+			updateLabels();
+
 			resizeObserver = new ResizeObserver(() => fit());
 			resizeObserver.observe(containerEl);
 		})().catch((err) => {
@@ -242,6 +397,8 @@
 		return () => {
 			cancelled = true;
 			clearTimeout(flashTimer);
+			clearTimeout(labelTimer);
+			cleanUpControls?.();
 			resizeObserver?.disconnect();
 			// Without this, switching regions leaks a WebGL context and its
 			// textures each time. The old code sidestepped it by forcing a full
@@ -258,6 +415,8 @@
 	<link rel="preload" as="image" href={globeBackground} />
 </svelte:head>
 
+<svelte:window onresize={updateLabels} />
+
 {#if confetti}
 	<div id="confetti-container" aria-hidden="true">
 		<Confetti
@@ -271,7 +430,7 @@
 	</div>
 {/if}
 
-<div id="container" bind:this={containerEl}>
+<div id="container" bind:this={containerEl} style:background-image="url({globeBackground})">
 	<div id="hud">
 		<p id="instruction" aria-live="polite">{instruction}</p>
 		<p id="score">
@@ -280,9 +439,23 @@
 				<span class="muted">· {learned}/{total} learned</span>
 			{/if}
 		</p>
+		<button id="labels-toggle" onclick={() => (labelsOn = !labelsOn)} aria-pressed={labelsOn}>
+			{labelsOn ? 'Hide names' : 'Show names'}
+		</button>
 	</div>
 
 	<div id="globe" bind:this={globeEl}></div>
+
+	<!-- Names are plain DOM text, not geometry on the globe. three-globe's label
+	     layer builds a TextGeometry per label from a typeface font, which on the
+	     world quiz would be 177 more meshes and 177 more draw calls on hardware
+	     already short of both. Text nodes also stay crisp and can be read aloud
+	     by a screen reader, which a canvas never can. -->
+	{#each regionLabels as region (region.name)}
+		<span class="region-label" style:left="{region.x}px" style:top="{region.y}px">
+			{region.name}
+		</span>
+	{/each}
 
 	{#if !ready}
 		<div id="loading">
@@ -300,6 +473,60 @@
 		   svh tracks the collapsing mobile URL bar; vh would overflow behind it. */
 		height: calc(100svh - var(--header-height));
 		overflow: hidden;
+		/* The starfield, which used to be a scene-sized sphere inside WebGL. It
+		   never moves, so painting it once in CSS beats redrawing every pixel of
+		   it on every frame. */
+		background-color: #060a18;
+		background-size: cover;
+		background-position: center;
+	}
+
+	/* Let the starfield show through around the globe. */
+	#globe :global(canvas) {
+		background: transparent;
+	}
+
+	#labels-toggle {
+		/* #hud ignores pointer events so drags pass through to the globe. This is
+		   the one thing in it that has to be clickable. */
+		pointer-events: auto;
+		margin-top: 0.4rem;
+		/* Comfortably over the 44px touch target minimum, since the people using
+		   this are often standing at a wall panel. */
+		min-height: 44px;
+		padding: 0 0.9rem;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 6px;
+		background: rgba(6, 10, 24, 0.6);
+		color: white;
+		font-family: Poppins, sans-serif;
+		font-size: 0.9rem;
+		cursor: pointer;
+	}
+
+	#labels-toggle:hover,
+	#labels-toggle:focus-visible {
+		background: rgba(20, 38, 57, 0.85);
+	}
+
+	.region-label {
+		position: absolute;
+		z-index: 1;
+		/* Centred on the region rather than hanging off it, because there is no
+		   pointer to avoid. Nothing here is interactive; taps go to the globe. */
+		transform: translate(-50%, -50%);
+		padding: 1px 4px;
+		border-radius: 3px;
+		/* Kept in step with LABEL_FONT and LABEL_PADDING, which collision uses. */
+		font:
+			12px Poppins,
+			sans-serif;
+		line-height: 1.4;
+		white-space: nowrap;
+		color: #fff;
+		background: rgba(0, 0, 0, 0.45);
+		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+		pointer-events: none;
 	}
 
 	#globe {

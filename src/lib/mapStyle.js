@@ -99,6 +99,33 @@ export function buildStyle(regions, land) {
 	};
 }
 
+/**
+ * Diameter of the rendered globe, in CSS pixels, at zoom 0.
+ *
+ * MapLibre's world is 512 px wide at zoom 0, and under a spherical projection
+ * that width wraps the equator. The sphere's diameter is therefore that
+ * circumference over pi.
+ */
+const GLOBE_DIAMETER_AT_ZOOM_0 = 512 / Math.PI;
+
+/**
+ * Zoom at which the globe fills the viewport.
+ *
+ * Fitting a bounding box is the right instinct for a region, but it fails badly
+ * for a whole-world quiz. Mercator stretches towards the poles without limit, so
+ * fitting a tall box drives the zoom down and the globe shrinks to a marble in
+ * the middle of the screen. Treating it as a floor keeps regional quizzes framed
+ * by their data while stopping the world from collapsing.
+ *
+ * @param {number} width Viewport width in CSS pixels.
+ * @param {number} height Viewport height in CSS pixels.
+ * @param {number} [fraction] Share of the smaller dimension the globe should span.
+ */
+export function zoomToFillGlobe(width, height, fraction = 0.92) {
+	const target = Math.min(width, height) * fraction;
+	return Math.log2(target / GLOBE_DIAMETER_AT_ZOOM_0);
+}
+
 /** Shortest signed distance from `a` to `b` in degrees of longitude. */
 const lngDelta = (a, b) => ((((b - a) % 360) + 540) % 360) - 180;
 
@@ -168,8 +195,13 @@ export function boundsOf(collection, origin, keepFraction = 0.9) {
 		north = Math.max(north, c.maxY);
 	}
 
+	// Web Mercator cannot represent the poles, so a box reaching -90 has infinite
+	// height and any fit to it collapses to minimum zoom. The world dataset does
+	// reach -90, because Antarctica is in it. Clamp to Mercator's usable limit.
+	const MERCATOR_LIMIT = 85.05;
+
 	return [
-		[origin + west, south],
-		[origin + east, north]
+		[origin + west, Math.max(south, -MERCATOR_LIMIT)],
+		[origin + east, Math.min(north, MERCATOR_LIMIT)]
 	];
 }

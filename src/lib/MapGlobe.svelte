@@ -25,7 +25,7 @@
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
 	import { datasetUrl } from './regions.js';
-	import { buildStyle, REGION_FILL_LAYER, boundsOf } from './mapStyle.js';
+	import { buildStyle, REGION_FILL_LAYER, boundsOf, zoomToFillGlobe } from './mapStyle.js';
 	import starfield from '$lib/images/night-sky.webp';
 
 	/**
@@ -34,7 +34,12 @@
 	 * The opening zoom comes from fitting the data, not from globe.gl's camera
 	 * altitude, which does not map onto MapLibre zoom by any stable factor.
 	 */
-	let { dataset, pov = [37, -95, 0.7], label = '' } = $props();
+	let {
+		dataset,
+		pov = [37, -95, 0.7],
+		label = '',
+		pixelRatio = Math.min(2, window.devicePixelRatio || 1)
+	} = $props();
 
 	/** Half-width of the tap box, in px. Gives fingers a margin on small regions. */
 	const TAP_TOLERANCE = 8;
@@ -153,11 +158,20 @@
 				// to maintain.
 				bounds: boundsOf(regions, pov[1]),
 				fitBoundsOptions: { padding: 24 },
+				// MapLibre takes the raw devicePixelRatio unless told otherwise. The
+				// caller caps it to match globe.gl so the A/B is not decided by one
+				// renderer drawing more pixels than the other.
+				pixelRatio,
 				attributionControl: false,
 				// The quiz is about finding places, not surveying them.
 				pitchWithRotate: false,
 				dragRotate: false
 			});
+
+			// Never let the globe shrink to a marble. See zoomToFillGlobe.
+			const { width, height } = containerEl.getBoundingClientRect();
+			const fill = zoomToFillGlobe(width, height);
+			if (map.getZoom() < fill) map.setZoom(fill);
 
 			// MapLibre reports style and source failures through an event rather than
 			// throwing, so without this a bad style just never finishes loading and
