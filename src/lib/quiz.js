@@ -8,8 +8,6 @@
  *    `stateData[undefined].score--`.
  *  - A wrong answer decremented the target's score with no floor, so a region
  *    could silently come to require many more correct clicks than intended.
- *  - Labels hid at score >= 1 while mastery needed 2, so a half-learned region
- *    lost its label.
  *  - The win check keyed off the running score, which also decrements on
  *    mistakes. A player could master every region and still not win.
  *
@@ -19,6 +17,22 @@
 
 /** Correct clicks needed before a region is considered learned. */
 export const MASTERY = 2;
+
+/**
+ * Correct clicks after which a region stops showing its name.
+ *
+ * Deliberately lower than MASTERY, and deliberately a separate idea. The first
+ * time a student meets a region its name is on the map, so finding it is a
+ * search. After that the name is gone, so finding it again is recall. The
+ * scaffold is there for the trial that builds the memory and absent for the
+ * trial that tests it.
+ *
+ * An earlier pass treated a half-learned region losing its label as a bug and
+ * moved label hiding to MASTERY. That was reasoning about internal consistency
+ * rather than teaching, and it meant the label only ever vanished at the moment
+ * the region was already finished, which is too late to be worth anything.
+ */
+export const SCAFFOLD = 1;
 
 /**
  * @param {string[]} names Region names, in any order.
@@ -39,9 +53,13 @@ export function createQuiz(names, random = Math.random) {
 		get remaining() {
 			return roster.filter((n) => hits.get(n) < MASTERY);
 		},
-		/** True once a region has been clicked enough; drives label hiding. */
+		/** True once a region has been clicked enough; drives the win condition. */
 		mastered(name) {
 			return (hits.get(name) ?? 0) >= MASTERY;
+		},
+		/** True while a region should still show its name to the student. */
+		scaffolded(name) {
+			return (hits.get(name) ?? 0) < SCAFFOLD;
 		},
 		get total() {
 			return roster.length;
