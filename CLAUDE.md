@@ -68,6 +68,29 @@ prompts in `Globe.svelte` and `MapGlobe.svelte`.
 | `npm run lint` / `npm run format`   | Prettier check + ESLint / rewrite                                    |
 | `npm run geodata`                   | Rebuild `static/geo/` from upstream sources. **Not** part of `build` |
 
+## Committing and shipping
+
+**Commit and push finished work. Do not leave it sitting in the working tree.**
+
+The reason is testing. Zonia has to be tried on real hardware: a classroom panel, a school
+Chromebook, a phone. None of that can happen from someone's working tree. Pushed work gets a URL,
+and a URL can be opened on the panel or sent to a teacher with no further thought. Work that is not
+pushed cannot be tested where it matters, and this project's whole performance story came from
+testing where it matters.
+
+Reverting is cheap. That is what git is for. The risk of shipping something imperfect is smaller
+than the cost of not being able to try it.
+
+- Work on a branch, not `main`.
+- Commit in logical chunks, with a message that says why. The Writing rules above apply to commit
+  messages.
+- Push the branch when the work stands up: `npm test`, `npm run check` and `npm run lint` clean, and
+  `npm run build` passing its own checks.
+- **Merging to `main` deploys to production.** Vercel builds the repo's default branch. Say so
+  plainly when proposing a merge, because the audience is live classrooms.
+- A pull request gets a Vercel preview URL. That is the right target for something that needs
+  trying on a device before it reaches students.
+
 ## Layout
 
 ```
