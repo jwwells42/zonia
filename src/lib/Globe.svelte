@@ -8,6 +8,7 @@
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
 	import { labelAnchors, placeLabels } from './labels.js';
+	import { regionIndex, regionAt } from './pick.js';
 	import { datasetUrl } from './regions.js';
 	import globeSkin from '$lib/images/earth-night.webp';
 	import globeBackground from '$lib/images/night-sky.webp';
@@ -144,14 +145,17 @@
 	}
 
 	/**
-	 * How often label positions are recomputed while the globe is moving.
+	 * How often the *choice* of which names to draw is remade while the globe is
+	 * moving.
 	 *
-	 * Projecting every anchor and packing the survivors is far too much to do on
-	 * every frame, and it does not need to be. Labels trailing the globe by a
-	 * fraction of a second during a spin is invisible; a frame rate drop while
-	 * dragging is exactly what this app cannot afford.
+	 * Deciding costs a projection and a facing test for every region in the quiz,
+	 * then a collision pass over whatever survives. That is far too much to do on
+	 * every frame and it does not need to be: which names fit changes slowly.
+	 *
+	 * Moving names that have already been chosen is a different job and it does
+	 * run every frame. See positionLabels.
 	 */
-	const LABEL_INTERVAL_MS = 90;
+	const REPACK_INTERVAL_MS = 90;
 
 	/**
 	 * Stable reference for "no labels", so turning them off repeatedly assigns the
@@ -161,6 +165,11 @@
 
 	/** Placed labels, in screen coordinates. The one globe value the template reads. */
 	let regionLabels = $state(NO_LABELS);
+	/**
+	 * The same labels as last chosen, still carrying their anchors. Plain, not
+	 * $state: this is what positionLabels re-projects, and nothing renders it.
+	 */
+	let shownLabels = [];
 	/**
 	 * Whether names are showing.
 	 *
@@ -173,10 +182,16 @@
 	/** Plain, not $state: thousands of coordinates went into these. */
 	let anchors = [];
 	let labelTimer;
+	/** Bounding-boxed geometry for resolving a tap to a region. Plain, same reason. */
+	let regions = [];
 
-	function updateLabels() {
+	/**
+	 * Re-chooses which names to draw. The expensive half, so it runs on a timer.
+	 */
+	function repackLabels() {
 		if (!world || !containerEl || !quiz) return;
 		if (!labelsOn) {
+			shownLabels = [];
 			regionLabels = NO_LABELS;
 			return;
 		}
@@ -187,7 +202,7 @@
 		const { x, y, z } = world.camera().position;
 		const length = Math.hypot(x, y, z) || 1;
 
-		regionLabels = placeLabels({
+		shownLabels = placeLabels({
 			anchors,
 			project: (lat, lng) => world.getScreenCoords(lat, lng),
 			cameraDir: { x: x / length, y: y / length, z: z / length },
@@ -197,13 +212,35 @@
 			// Germany not being in the quiz.
 			priority: quiz.state.target
 		});
+		positionLabels();
+	}
+
+	/**
+	 * Moves the names already chosen to where the globe has got to. Runs on every
+	 * camera change, which during a drag means every frame.
+	 *
+	 * This used to be part of the throttled pass, and on a classroom panel that
+	 * was the bug people saw: at 20 fps a 90ms throttle leaves the names a couple
+	 * of frames behind the land, so a finger sweep drags the globe out from under
+	 * them and the words visibly swim across the map before catching up.
+	 *
+	 * Doing it every frame is affordable because it is not the expensive part. The
+	 * throttled pass projects every region in the quiz and runs a collision pass;
+	 * this projects the twenty or thirty that are actually on screen and writes
+	 * two style properties each.
+	 */
+	function positionLabels() {
+		if (!world) return;
+		regionLabels = shownLabels.length
+			? shownLabels.map((label) => ({ ...label, ...world.getScreenCoords(label.lat, label.lng) }))
+			: NO_LABELS;
 	}
 
 	// Repack whenever names are switched on or off, from either source. Doing it
 	// here rather than in the click handler means the globe is never rebuilt.
 	$effect(() => {
 		labelsOn;
-		updateLabels();
+		repackLabels();
 	});
 
 	/**
@@ -221,7 +258,7 @@
 		if (!world || !containerEl) return;
 		const { width, height } = containerEl.getBoundingClientRect();
 		if (width && height) world.width(width).height(height);
-		updateLabels();
+		repackLabels();
 	}
 
 	function showFeedback(name, kind) {
@@ -234,9 +271,8 @@
 		}, 450);
 	}
 
-	function handleClick(polygon) {
+	function answer(name) {
 		if (won) return;
-		const name = nameOf(polygon);
 		const result = quiz.click(name);
 
 		score = quiz.state.score;
@@ -244,7 +280,7 @@
 		showFeedback(name, result.correct ? 'correct' : 'wrong');
 		// A correct click is what retires a region's name, so the labels have to be
 		// repacked: losing one frees space a crowded-out neighbour can now use.
-		updateLabels();
+		repackLabels();
 
 		if (result.won) {
 			won = true;
@@ -258,6 +294,102 @@
 			// only feedback the player gets about where their finger landed.
 			instruction = `That was ${name}. Find ${result.target}.`;
 		}
+	}
+
+	/**
+	 * How far a finger may slide and still count as a tap, in CSS pixels.
+	 *
+	 * Generous, because the people using this are standing at a wall panel and
+	 * pressing it with a whole fingertip. Nothing is lost by being generous: a
+	 * real drag moves far further than this in the first frame.
+	 */
+	const TAP_SLOP_PX = 12;
+
+	/**
+	 * How far off a region a tap may land and still count as hitting it, in CSS
+	 * pixels. Applied only when the tap hit no region at all.
+	 */
+	const TAP_TOLERANCE_PX = 8;
+
+	/**
+	 * Ceiling on that tolerance once it is converted to degrees.
+	 *
+	 * Near the limb a degree of latitude compresses to almost no pixels, so the
+	 * conversion runs away and a tap in open water could claim a country a long
+	 * way inland. Beyond this the slack is simply not offered.
+	 */
+	const MAX_TAP_TOLERANCE_DEG = 4;
+
+	/** The pointer currently down, if a tap is still possible. */
+	let tapFrom = null;
+	/** Fingers on the glass. A second one means a pinch, never a tap. */
+	let pointersDown = 0;
+
+	/**
+	 * The tap tolerance in degrees at the point tapped.
+	 *
+	 * Degrees per pixel changes with the camera altitude and with where on the
+	 * globe you are, so it is measured rather than assumed: project a one degree
+	 * step and see how far it moved. The step is towards the equator so it cannot
+	 * run past a pole.
+	 */
+	function tapToleranceDegrees(lat, lng) {
+		const here = world.getScreenCoords(lat, lng, ALTITUDE);
+		const step = world.getScreenCoords(lat + (lat > 0 ? -1 : 1), lng, ALTITUDE);
+		const pxPerDegree = Math.hypot(step.x - here.x, step.y - here.y);
+		if (!(pxPerDegree > 0)) return 0;
+		return Math.min(TAP_TOLERANCE_PX / pxPerDegree, MAX_TAP_TOLERANCE_DEG);
+	}
+
+	/** Resolves a tap position to a region and plays it. */
+	function answerAt(clientX, clientY) {
+		if (won || !world || !regions.length) return;
+		const rect = globeEl.getBoundingClientRect();
+		const hit = world.toGlobeCoords(clientX - rect.left, clientY - rect.top);
+		// Tapped the sky. Not a wrong answer, just not an answer.
+		if (!hit) return;
+
+		const name = regionAt(regions, hit.lat, hit.lng, tapToleranceDegrees(hit.lat, hit.lng));
+		if (name) answer(name);
+	}
+
+	function onPointerDown(event) {
+		pointersDown++;
+		tapFrom = pointersDown > 1 ? null : { id: event.pointerId, x: event.clientX, y: event.clientY };
+
+		/**
+		 * Hover does not exist on a touch panel, and three-render-objects does not
+		 * know that: it keeps raycasting the last touched position long after the
+		 * finger has gone, leaving a region stuck orange. Turning the hover pass off
+		 * the first time a finger is used fixes that and spares the weakest hardware
+		 * a raycast every 50ms.
+		 */
+		if (world && event.pointerType !== 'mouse' && world.enablePointerInteraction()) {
+			world.enablePointerInteraction(false);
+			hovered = null;
+			repaint();
+		}
+	}
+
+	function onPointerMove(event) {
+		if (!tapFrom || event.pointerId !== tapFrom.id) return;
+		if (Math.hypot(event.clientX - tapFrom.x, event.clientY - tapFrom.y) > TAP_SLOP_PX) {
+			tapFrom = null;
+		}
+	}
+
+	function onPointerUp(event) {
+		pointersDown = Math.max(0, pointersDown - 1);
+		const from = tapFrom;
+		tapFrom = null;
+		if (!from || event.pointerId !== from.id) return;
+		if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > TAP_SLOP_PX) return;
+		answerAt(event.clientX, event.clientY);
+	}
+
+	function onPointerCancel() {
+		pointersDown = Math.max(0, pointersDown - 1);
+		tapFrom = null;
 	}
 
 	onMount(() => {
@@ -279,6 +411,7 @@
 			total = quiz.state.total;
 			// One pass over the geometry, here rather than per frame.
 			anchors = labelAnchors(polygons, { measure: textMeasurer() });
+			regions = regionIndex(polygons);
 
 			progress = 0.35;
 			instruction = `Find ${quiz.state.target}!`;
@@ -327,15 +460,16 @@
 				.polygonSideColor(() => null)
 				.polygonStrokeColor(() => '#111')
 				.polygonCapMaterial(materialFor)
-				// No polygonLabel. Names are drawn on the map by updateLabels instead
-				// of following the pointer, because hover does not exist on a touch
-				// panel and that is where this is used.
+				// No polygonLabel. Names are drawn on the map by the label passes above
+				// instead of following the pointer, because hover does not exist on a
+				// touch panel and that is where this is used.
 				.onPolygonHover((polygon) => {
 					if (hovered === polygon) return;
 					hovered = polygon;
 					repaint();
-				})
-				.onPolygonClick(handleClick);
+				});
+			// No onPolygonClick either. Taps are resolved against the geometry by
+			// answerAt, for the reasons in pick.js.
 
 			// three-render-objects sets this to Math.min(2, devicePixelRatio) at
 			// construction and offers no option for it, so it is overridden after the
@@ -362,30 +496,31 @@
 			ready = true;
 
 			/**
-			 * Labels follow the camera on a timer rather than on every frame.
+			 * Names track the camera on every change, and are re-chosen on a timer.
 			 *
-			 * OrbitControls fires `change` continuously through a drag, and the work
-			 * behind each update is a projection per region plus a collision pass.
-			 * Doing that 60 times a second on a classroom panel would cost more frames
-			 * than the labels are worth. `end` gives the settled positions once the
-			 * globe stops, so the throttle is never the last word.
+			 * OrbitControls fires `change` continuously through a drag and through
+			 * the damped glide that follows it, so this is effectively a per-frame
+			 * hook. Moving the names there is what keeps them stuck to their
+			 * countries. Deciding which names fit is the costly part and stays
+			 * throttled.
 			 */
 			const controls = world.controls();
 			const onChange = () => {
+				positionLabels();
 				if (labelTimer) return;
 				labelTimer = setTimeout(() => {
 					labelTimer = null;
-					updateLabels();
-				}, LABEL_INTERVAL_MS);
+					repackLabels();
+				}, REPACK_INTERVAL_MS);
 			};
 			controls.addEventListener('change', onChange);
-			controls.addEventListener('end', updateLabels);
+			controls.addEventListener('end', repackLabels);
 			cleanUpControls = () => {
 				controls.removeEventListener('change', onChange);
-				controls.removeEventListener('end', updateLabels);
+				controls.removeEventListener('end', repackLabels);
 			};
 
-			updateLabels();
+			repackLabels();
 
 			resizeObserver = new ResizeObserver(() => fit());
 			resizeObserver.observe(containerEl);
@@ -415,7 +550,7 @@
 	<link rel="preload" as="image" href={globeBackground} />
 </svelte:head>
 
-<svelte:window onresize={updateLabels} />
+<svelte:window onresize={repackLabels} />
 
 {#if confetti}
 	<div id="confetti-container" aria-hidden="true">
@@ -444,7 +579,23 @@
 		</button>
 	</div>
 
-	<div id="globe" bind:this={globeEl}></div>
+	<!-- Taps are handled here rather than through globe.gl's own click, which
+	     reports whatever its throttled hover raycaster last saw. On a touch panel
+	     that is stale or nothing. See pick.js.
+
+	     No role, because there is no keyboard way to play and claiming one would
+	     tell a screen reader this is operable when it is not. globe.gl's own
+	     handler had the same gap; it was just inside a library where the linter
+	     could not see it. Playing by keyboard is a real feature and not this. -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		id="globe"
+		bind:this={globeEl}
+		onpointerdown={onPointerDown}
+		onpointermove={onPointerMove}
+		onpointerup={onPointerUp}
+		onpointercancel={onPointerCancel}
+	></div>
 
 	<!-- Names are plain DOM text, not geometry on the globe. three-globe's label
 	     layer builds a TextGeometry per label from a typeface font, which on the
