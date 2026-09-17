@@ -110,6 +110,8 @@ scripts/rosters.json       Which regions each quiz contains. The contract
 src/lib/regions.js         Every quiz, keyed by URL path, + nav structure
 src/lib/quiz.js            Quiz rules, pure, no DOM
 src/lib/labels.js          Where region names go, pure, no DOM
+src/lib/pick.js            Which region a tap landed on, pure, no DOM
+src/lib/geo.js             Planar geometry primitives shared by those two
 src/lib/Globe.svelte       Renderer A, globe.gl / three-globe
 src/lib/MapGlobe.svelte    Renderer B, MapLibre (evaluation)
 src/lib/mapStyle.js        MapLibre style spec and view framing
@@ -157,6 +159,16 @@ file used to say three-globe raycasts every polygon on every pointer move. It do
 `pointerRaycasterThrottleMs` defaults to 50 and `hoverDuringDrag` defaults to false
 (`three-render-objects.mjs`), so a drag does no picking at all. Since frame rate is sampled while
 dragging, those numbers contain no hover cost.
+
+**That same hover machinery is why taps had to be taken away from globe.gl.** Those two defaults
+are cheap because they make hover lazy, and three-render-objects answers a click by handing back
+whatever the lazy hover raycaster last landed on. On a mouse that is invisible. On a touch panel it
+is the game. There is no hover before a tap, so the answer is stale or null. Worse, any finger that
+slides more than a pixel sets `isPointerDragging`, and `clickAfterDrag` defaults to false, so the
+tap is discarded without a sound. A fingertip on a wall panel always slides more than a pixel.
+`Globe.svelte` now does its own tap detection and asks `pick.js` what is under the finger, which
+has no such state to get wrong. It also turns `enablePointerInteraction` off the first time a
+finger is used, since hover means nothing on a panel and the raycast is pure cost there.
 
 ### What is actually slow, measured
 
@@ -310,9 +322,13 @@ every frame. Things that look harmless and are not:
 - **Region names are DOM, not a globe layer.** three-globe's `labelsData` builds a `TextGeometry`
   per label from a typeface font, which on `/world` is 177 more meshes on hardware already short of
   draw calls. `labels.js` places them and `Globe.svelte` renders spans. See below.
-- **Label placement is throttled, never per frame.** `OrbitControls` fires `change` continuously
-  through a drag. Projecting every anchor and packing the survivors at 60Hz would cost more than
-  the labels are worth, so it runs on a timer with a final pass on `end`.
+- **Choosing names is throttled. Moving them is not.** These are two jobs and they run at two
+  rates. Choosing means projecting every anchor in the quiz, culling the far side, and packing the
+  survivors against collisions; at 60Hz that would cost more than the labels are worth, so
+  `repackLabels` runs on a timer. Moving the twenty or thirty names already chosen is one
+  projection each, and it runs on every `change`, which during a drag means every frame.
+  `positionLabels` does that. Throttling both is what made names swim across the map on a panel:
+  at 20 fps a 90ms throttle leaves them two frames behind the land.
 
 **The next real optimisation, and the only one left that matters.** three-globe builds a cap mesh
 and a stroke line per polygon part (`three-globe.mjs`), and `/world` measures **720 draw calls a
