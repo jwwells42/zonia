@@ -10,6 +10,8 @@
  * labels behave the same under a finger and a mouse.
  */
 
+import { polygonParts, ringArea, signedDistance } from './geo.js';
+
 /**
  * Fallback box size for a label, used when no measurer is supplied.
  *
@@ -25,69 +27,6 @@ const estimateBox = (name, fontSize) => ({
 	width: name.length * fontSize * CHAR_WIDTH,
 	height: fontSize * LINE_HEIGHT
 });
-
-/**
- * Signed area of a ring, in square degrees.
- *
- * Only ever compared against other rings, so the crudeness of treating degrees
- * as a flat plane does not matter. It picks the biggest piece of an archipelago
- * and ranks small countries below large ones, which is all it is for.
- */
-function ringArea(ring) {
-	let sum = 0;
-	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-		sum += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
-	}
-	return Math.abs(sum / 2);
-}
-
-/**
- * Each part of a Polygon or MultiPolygon, as `[outerRing, ...holes]`.
- * Holes are kept so a label is never placed in one.
- */
-function parts(geometry) {
-	if (geometry.type === 'Polygon') return [geometry.coordinates];
-	if (geometry.type === 'MultiPolygon') return geometry.coordinates;
-	return [];
-}
-
-/** Squared distance from a point to a line segment. */
-function segmentDistSq(px, py, ax, ay, bx, by) {
-	let x = ax;
-	let y = ay;
-	const dx = bx - ax;
-	const dy = by - ay;
-	if (dx !== 0 || dy !== 0) {
-		const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
-		if (t > 1) {
-			x = bx;
-			y = by;
-		} else if (t > 0) {
-			x += dx * t;
-			y += dy * t;
-		}
-	}
-	return (px - x) ** 2 + (py - y) ** 2;
-}
-
-/**
- * Distance from a point to the polygon's edge, negative when outside.
- * Rings after the first are holes, so being inside one counts as outside.
- */
-function signedDistance(px, py, rings) {
-	let inside = false;
-	let minSq = Infinity;
-
-	for (const ring of rings) {
-		for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-			const [xi, yi] = ring[i];
-			const [xj, yj] = ring[j];
-			if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
-			minSq = Math.min(minSq, segmentDistSq(px, py, xi, yi, xj, yj));
-		}
-	}
-	return (inside ? 1 : -1) * Math.sqrt(minSq);
-}
 
 /**
  * The point inside a polygon furthest from any edge, its pole of inaccessibility.
@@ -196,7 +135,7 @@ function poleOfInaccessibility(rings) {
 export function labelAnchors(features, { fontSize = 12, measure } = {}) {
 	const anchors = [];
 	for (const feature of features) {
-		const usable = parts(feature.geometry).filter((rings) => rings[0]?.length > 2);
+		const usable = polygonParts(feature.geometry).filter((rings) => rings[0]?.length > 2);
 		if (!usable.length) continue;
 
 		let largest = usable[0];
@@ -263,7 +202,9 @@ const overlaps = (a, b) =>
  * @param {(name: string) => boolean} [options.shouldLabel]
  * @param {string | null} [options.priority] Name that must be placed before any other.
  * @param {number} [options.margin] How far inside the limb a label must sit, 0 to 1.
- * @returns {{ name: string, x: number, y: number }[]}
+ * @returns {{ name: string, lat: number, lng: number, x: number, y: number }[]}
+ *   The anchor comes back with each label so a caller that redraws often can
+ *   re-project it without running the whole decision again.
  */
 export function placeLabels({
 	anchors,
@@ -290,6 +231,8 @@ export function placeLabels({
 
 		candidates.push({
 			name: anchor.name,
+			lat: anchor.lat,
+			lng: anchor.lng,
 			x,
 			y,
 			area: anchor.area,
@@ -318,5 +261,5 @@ export function placeLabels({
 		if (placed.some((other) => overlaps(candidate, other))) continue;
 		placed.push(candidate);
 	}
-	return placed.map(({ name, x, y }) => ({ name, x, y }));
+	return placed.map(({ name, lat, lng, x, y }) => ({ name, lat, lng, x, y }));
 }

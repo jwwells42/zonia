@@ -3,27 +3,9 @@ import { readFileSync } from 'node:fs';
 import { feature } from 'topojson-client';
 import { REGIONS } from './regions.js';
 import { labelAnchors } from './labels.js';
+import { regionIndex, regionAt } from './pick.js';
 
 const rosters = JSON.parse(readFileSync('scripts/rosters.json', 'utf8'));
-
-/** Ray casting against a single ring. */
-function inRing([x, y], ring) {
-	let inside = false;
-	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-		const [xi, yi] = ring[i];
-		const [xj, yj] = ring[j];
-		if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-	}
-	return inside;
-}
-
-/** True when a point is inside any part of a feature and in none of its holes. */
-function inFeature(point, geometry) {
-	const parts = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
-	return parts.some(
-		([outer, ...holes]) => inRing(point, outer) && !holes.some((hole) => inRing(point, hole))
-	);
-}
 
 const load = (dataset) => {
 	const topology = JSON.parse(readFileSync(`static/geo/${dataset}.topo.json`, 'utf8'));
@@ -59,17 +41,18 @@ describe('built geodata', () => {
 			});
 
 			it('puts every label anchor inside its own region', () => {
-				// Against the real geometry, not a fixture. A label sitting in the
-				// wrong country is the most visible way this can break, and it breaks
-				// silently: the name still renders, just over a neighbour. Awkward
-				// outlines are what catch it, so this has to run on the shipped data.
-				const byName = new Map(features.map((f) => [f.properties.name, f.geometry]));
+				// Against the real geometry, not a fixture. Two things break silently
+				// here. A label sitting in the wrong country still renders, just over
+				// a neighbour. A tap landing on the wrong country still scores, just
+				// against the wrong answer. Both come down to the same question, and
+				// both are worst on the awkward outlines a student finds hardest, so
+				// this has to run on the shipped data.
+				const index = regionIndex(features);
 				for (const anchor of labelAnchors(features)) {
-					const geometry = byName.get(anchor.name);
 					expect(
-						inFeature([anchor.lng, anchor.lat], geometry),
-						`${anchor.name} anchor fell outside its region`
-					).toBe(true);
+						regionAt(index, anchor.lat, anchor.lng),
+						`${anchor.name} anchor did not resolve to its own region`
+					).toBe(anchor.name);
 				}
 			});
 
