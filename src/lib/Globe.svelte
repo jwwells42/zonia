@@ -3,7 +3,7 @@
 	import GlobeGL from 'globe.gl';
 	// MeshBasic, not Lambert: this is what three-globe builds its own default cap
 	// material from, so the unlit look of the original polygons is preserved.
-	import { MeshBasicMaterial } from 'three';
+	import { MeshBasicMaterial, Raycaster, Sphere, Vector2, Vector3 } from 'three';
 	import { feature } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
@@ -378,11 +378,35 @@
 		return Math.min(TAP_TOLERANCE_PX / pxPerDegree, MAX_TAP_TOLERANCE_DEG);
 	}
 
+	/**
+	 * Where on the globe a screen point lands, on the surface the regions are
+	 * actually drawn on.
+	 *
+	 * globe.gl's toGlobeCoords is not used for this. It raycasts to the bare
+	 * globe sphere, which sits ALTITUDE below the regions. Away from the middle of
+	 * the view the ray meets the drawn region first and then carries on towards
+	 * the limb before reaching that sphere. Near the edge of the globe that is a
+	 * degree or two, which put taps on a border into the country behind it: the
+	 * region lit up under the pointer was not the one that got answered.
+	 */
+	// The origin and direction are placeholders. setFromCamera overwrites both.
+	const raycaster = new Raycaster(new Vector3(), new Vector3());
+	function surfaceAt(clientX, clientY) {
+		const rect = globeEl.getBoundingClientRect();
+		const pointer = new Vector2(
+			((clientX - rect.left) / rect.width) * 2 - 1,
+			-((clientY - rect.top) / rect.height) * 2 + 1
+		);
+		raycaster.setFromCamera(pointer, world.camera());
+		const surface = new Sphere(new Vector3(), world.getGlobeRadius() * (1 + ALTITUDE));
+		const point = raycaster.ray.intersectSphere(surface, new Vector3());
+		return point && world.toGeoCoords(point);
+	}
+
 	/** Resolves a tap position to a region and plays it. */
 	function answerAt(clientX, clientY) {
 		if (won || !world || !regions.length) return;
-		const rect = globeEl.getBoundingClientRect();
-		const hit = world.toGlobeCoords(clientX - rect.left, clientY - rect.top);
+		const hit = surfaceAt(clientX, clientY);
 		// Tapped the sky. Not a wrong answer, just not an answer.
 		if (!hit) return;
 
