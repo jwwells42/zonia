@@ -398,8 +398,13 @@ placement rules can be tested without a browser.
   inside, against the real shipped geometry.
 - **Multi-part regions are named on their largest piece**, so a country with distant islands gets
   its name on the mainland rather than out at sea.
-- **Only the near hemisphere.** A projection happily returns screen coordinates for a point behind
-  the planet, so those are culled by comparing each anchor's surface normal against the camera.
+- **Only what the camera can see.** A projection happily returns screen coordinates for a point
+  behind the planet, so those are culled. The renderer supplies the test, built from its own
+  lat/lng-to-3D function, so there is one convention and not two. It measures the angle to the
+  camera itself. A camera at a finite distance sees less than a hemisphere: about 65° either side at
+  `/world`, under 50° on `/us/northeast`. An earlier version had its axes swapped relative to
+  three-globe and assumed 90°. Names blinked out at the centre of the screen and far-side names
+  were drawn over near-side land.
 - **Collisions resolve smallest region first.** This ordering is the whole design and it is the
   opposite of the obvious one. Labelling whatever is big enough names Russia and skips Luxembourg,
   which is backwards: small regions are the names a student needs. Letting them claim their spot

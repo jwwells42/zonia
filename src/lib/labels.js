@@ -161,14 +161,6 @@ export function labelAnchors(features, { fontSize = 12, measure } = {}) {
 	return anchors;
 }
 
-/** Unit vector on the sphere for a latitude and longitude in degrees. */
-export function unitVector(lat, lng) {
-	const phi = (lat * Math.PI) / 180;
-	const theta = (lng * Math.PI) / 180;
-	const cos = Math.cos(phi);
-	return { x: cos * Math.cos(theta), y: Math.sin(phi), z: cos * Math.sin(theta) };
-}
-
 const overlaps = (a, b) =>
 	Math.abs(a.x - b.x) * 2 < a.width + b.width && Math.abs(a.y - b.y) * 2 < a.height + b.height;
 
@@ -179,9 +171,15 @@ const overlaps = (a, b) =>
  *
  * **The far side of the globe.** A projection returns screen coordinates for any
  * point, including one behind the planet, so those have to be culled by hand.
- * The camera looks at the origin, so a point faces the camera when its surface
- * normal points the same way as the camera does. The margin trims labels sitting
- * right on the limb, which are edge-on and read as noise.
+ * The renderer says how squarely each point faces the camera. The margin trims
+ * labels sitting right on the limb, which are edge-on and read as noise.
+ *
+ * That test is the renderer's, not this file's, because it depends on how the
+ * renderer turns latitude and longitude into 3D. This file once did the sum
+ * itself with its axes swapped relative to three-globe's. The error was a
+ * rotation, so it never looked broken in a test: names near the middle of the
+ * screen blinked out on a nudge, and names from the far side were drawn over
+ * the near one.
  *
  * **Collisions, smallest region first.** Labels are placed in ascending order of
  * area and one is dropped only when it would land on top of a label already
@@ -197,7 +195,8 @@ const overlaps = (a, b) =>
  * @param {object} options
  * @param {ReturnType<typeof labelAnchors>} options.anchors
  * @param {(lat: number, lng: number) => { x: number, y: number }} options.project
- * @param {{ x: number, y: number, z: number }} options.cameraDir Normalised camera direction.
+ * @param {(lat: number, lng: number) => number} options.facing How squarely a point
+ *   faces the camera. 1 in the middle of the view, 0 on the limb, negative behind.
  * @param {{ width: number, height: number }} options.viewport
  * @param {(name: string) => boolean} [options.shouldLabel]
  * @param {string | null} [options.priority] Name that must be placed before any other.
@@ -209,7 +208,7 @@ const overlaps = (a, b) =>
 export function placeLabels({
 	anchors,
 	project,
-	cameraDir,
+	facing,
 	viewport,
 	shouldLabel = () => true,
 	priority = null,
@@ -220,9 +219,7 @@ export function placeLabels({
 	for (const anchor of anchors) {
 		if (!shouldLabel(anchor.name)) continue;
 
-		const normal = unitVector(anchor.lat, anchor.lng);
-		const facing = normal.x * cameraDir.x + normal.y * cameraDir.y + normal.z * cameraDir.z;
-		if (facing <= margin) continue;
+		if (!(facing(anchor.lat, anchor.lng) > margin)) continue;
 
 		const { x, y } = project(anchor.lat, anchor.lng);
 		if (!Number.isFinite(x) || !Number.isFinite(y)) continue;

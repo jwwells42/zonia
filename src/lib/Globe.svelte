@@ -186,6 +186,45 @@
 	let regions = [];
 
 	/**
+	 * Projects a point on the regions' surface to the screen, as the camera is now.
+	 *
+	 * OrbitControls fires `change` after moving the camera but before the frame
+	 * renders, and only the render refreshes the camera's world matrix. Projecting
+	 * straight away used last frame's rotation, so names trailed the land by a
+	 * frame all through a drag. Refreshing it here costs one matrix inverse.
+	 *
+	 * The altitude is the regions', so a name sits on the drawn land rather than
+	 * on the sphere just below it.
+	 */
+	function screenProjector() {
+		world.camera().updateMatrixWorld();
+		return (lat, lng) => world.getScreenCoords(lat, lng, ALTITUDE);
+	}
+
+	/**
+	 * How squarely a point faces the camera: 1 in the middle of the view, 0 on
+	 * the visible edge of the globe. Built from three-globe's own coordinates so
+	 * there is only one idea of where a latitude and longitude are in 3D. See
+	 * placeLabels.
+	 *
+	 * This is the angle between the surface and the line of sight to the camera,
+	 * not to a camera infinitely far away. The difference is large. A camera at a
+	 * finite distance sees less than half the sphere, so the edge is not 90° from
+	 * the middle of the view. At the world quiz's opening distance it is about 65°,
+	 * and on the Northeast quiz under 50°. Assuming 90° drew names for land
+	 * already out of sight, stacked on the rim over empty space.
+	 */
+	function cameraFacing() {
+		const eye = world.camera().position;
+		return (lat, lng) => {
+			const p = world.getCoords(lat, lng, ALTITUDE);
+			const sight = { x: eye.x - p.x, y: eye.y - p.y, z: eye.z - p.z };
+			const dot = p.x * sight.x + p.y * sight.y + p.z * sight.z;
+			return dot / (Math.hypot(p.x, p.y, p.z) * Math.hypot(sight.x, sight.y, sight.z));
+		};
+	}
+
+	/**
 	 * Re-chooses which names to draw. The expensive half, so it runs on a timer.
 	 */
 	function repackLabels() {
@@ -197,15 +236,10 @@
 		}
 
 		const { width, height } = containerEl.getBoundingClientRect();
-		// The camera always looks at the origin, so its position doubles as the
-		// direction the visible hemisphere faces.
-		const { x, y, z } = world.camera().position;
-		const length = Math.hypot(x, y, z) || 1;
-
 		shownLabels = placeLabels({
 			anchors,
-			project: (lat, lng) => world.getScreenCoords(lat, lng),
-			cameraDir: { x: x / length, y: y / length, z: z / length },
+			project: screenProjector(),
+			facing: cameraFacing(),
 			viewport: { width, height },
 			shouldLabel: (name) => quiz.state.scaffolded(name),
 			// "Find Germany" over a map showing every name but Germany's reads as
@@ -231,9 +265,12 @@
 	 */
 	function positionLabels() {
 		if (!world) return;
-		regionLabels = shownLabels.length
-			? shownLabels.map((label) => ({ ...label, ...world.getScreenCoords(label.lat, label.lng) }))
-			: NO_LABELS;
+		if (!shownLabels.length) {
+			regionLabels = NO_LABELS;
+			return;
+		}
+		const project = screenProjector();
+		regionLabels = shownLabels.map((label) => ({ ...label, ...project(label.lat, label.lng) }));
 	}
 
 	// Repack whenever names are switched on or off, from either source. Doing it
