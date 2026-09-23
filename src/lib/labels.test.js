@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { labelAnchors, placeLabels, unitVector } from './labels.js';
+import { labelAnchors, placeLabels } from './labels.js';
 
 /** A square Polygon feature of the given half-size, centred on lng/lat. */
 const square = (name, lng, lat, half) => ({
@@ -19,8 +19,9 @@ const square = (name, lng, lat, half) => ({
 });
 
 const viewport = { width: 1000, height: 1000 };
+const RAD = Math.PI / 180;
 /** Camera over 0,0, so the visible hemisphere is centred on the prime meridian. */
-const front = unitVector(0, 0);
+const front = (lat, lng) => Math.cos(lat * RAD) * Math.cos(lng * RAD);
 
 describe('labelAnchors', () => {
 	it('anchors a simple region at its centre', () => {
@@ -103,14 +104,14 @@ describe('placeLabels', () => {
 
 	it('drops labels on the far side of the globe', () => {
 		const anchors = labelAnchors([square('Near', 0, 0, 5), square('Far', 180, 0, 5)]);
-		const placed = placeLabels({ anchors, project: spread, cameraDir: front, viewport });
+		const placed = placeLabels({ anchors, project: spread, facing: front, viewport });
 		expect(placed.map((l) => l.name)).toEqual(['Near']);
 	});
 
 	it('drops labels sitting on the limb', () => {
 		// 90 degrees away is exactly edge-on, where a label reads as noise.
 		const anchors = labelAnchors([square('Edge', 89, 0, 1)]);
-		const placed = placeLabels({ anchors, project: spread, cameraDir: front, viewport });
+		const placed = placeLabels({ anchors, project: spread, facing: front, viewport });
 		expect(placed).toHaveLength(0);
 	});
 
@@ -119,7 +120,7 @@ describe('placeLabels', () => {
 		const placed = placeLabels({
 			anchors,
 			project: () => ({ x: -50, y: 500 }),
-			cameraDir: front,
+			facing: front,
 			viewport
 		});
 		expect(placed).toHaveLength(0);
@@ -130,7 +131,7 @@ describe('placeLabels', () => {
 		const placed = placeLabels({
 			anchors,
 			project: () => ({ x: NaN, y: NaN }),
-			cameraDir: front,
+			facing: front,
 			viewport
 		});
 		expect(placed).toHaveLength(0);
@@ -141,13 +142,13 @@ describe('placeLabels', () => {
 		// is the name a student needs, so it wins and the large one yields.
 		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
 		const stacked = () => ({ x: 500, y: 500 });
-		const placed = placeLabels({ anchors, project: stacked, cameraDir: front, viewport });
+		const placed = placeLabels({ anchors, project: stacked, facing: front, viewport });
 		expect(placed.map((l) => l.name)).toEqual(['Tiny']);
 	});
 
 	it('keeps both labels once they are far enough apart', () => {
 		const anchors = labelAnchors([square('Alpha', -30, 0, 5), square('Beta', 30, 0, 5)]);
-		const placed = placeLabels({ anchors, project: spread, cameraDir: front, viewport });
+		const placed = placeLabels({ anchors, project: spread, facing: front, viewport });
 		expect(placed).toHaveLength(2);
 	});
 
@@ -156,7 +157,7 @@ describe('placeLabels', () => {
 		const placed = placeLabels({
 			anchors,
 			project: spread,
-			cameraDir: front,
+			facing: front,
 			viewport,
 			shouldLabel: (name) => name === 'Beta'
 		});
@@ -171,7 +172,7 @@ describe('placeLabels', () => {
 		const placed = placeLabels({
 			anchors,
 			project: stacked,
-			cameraDir: front,
+			facing: front,
 			viewport,
 			priority: 'Big'
 		});
@@ -185,7 +186,7 @@ describe('placeLabels', () => {
 		const placed = placeLabels({
 			anchors,
 			project: spread,
-			cameraDir: front,
+			facing: front,
 			viewport,
 			shouldLabel: () => false,
 			priority: 'Alpha'
@@ -203,13 +204,13 @@ describe('placeLabels', () => {
 		const tight = placeLabels({
 			anchors,
 			project: (lat, lng) => ({ x: 500 + lng * 2, y: 500 }),
-			cameraDir: front,
+			facing: front,
 			viewport
 		});
 		const loose = placeLabels({
 			anchors,
 			project: (lat, lng) => ({ x: 500 + lng * 60, y: 500 }),
-			cameraDir: front,
+			facing: front,
 			viewport
 		});
 		expect(loose.length).toBeGreaterThan(tight.length);
