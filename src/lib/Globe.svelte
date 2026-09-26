@@ -33,6 +33,25 @@
 	const CAP_HOVER = '#f58622';
 	const CAP_CORRECT = '#3fb950';
 	const CAP_WRONG = '#d9534f';
+	/**
+	 * The border between regions, and it must not be near-background.
+	 *
+	 * This was '#111'. WebGL draws a line one device pixel wide and there is no
+	 * way to ask for thinner, so a region narrower than about two pixels on screen
+	 * is completely covered by its own outline and its neighbours'. Against a dark
+	 * starfield a near-black smear reads as a hole punched through the land, which
+	 * is what it was taken for.
+	 *
+	 * It is not a rare case. Measured on the shipped world geometry at the
+	 * standard framing, 41 of 177 regions average under four screen pixels wide.
+	 * The Caprivi Strip, where this was noticed, is 0.28 degrees across, about 1.4
+	 * pixels. Luxembourg is 1.5 and The Gambia 1.4, and those are exactly the
+	 * names the quiz most wants a student to find.
+	 *
+	 * So the border is a lighter tint than the cap rather than a darker one. A
+	 * sliver drawn entirely in it still reads as land.
+	 */
+	const BORDER = '#7d9fb8';
 
 	/**
 	 * Regions lie flat on the globe rather than standing proud of it.
@@ -584,7 +603,7 @@
 				.polygonAltitude(ALTITUDE)
 				// Falsy on purpose. This is what stops the side geometry being built.
 				.polygonSideColor(() => null)
-				.polygonStrokeColor(() => '#111')
+				.polygonStrokeColor(() => BORDER)
 				.polygonCapMaterial(materialFor)
 				// No polygonLabel. Names are drawn on the map by the label passes above
 				// instead of following the pointer, because hover does not exist on a

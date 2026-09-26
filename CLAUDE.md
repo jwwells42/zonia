@@ -360,6 +360,16 @@ every frame. Things that look harmless and are not:
   page reload on every navigation. That is why it felt slow.
 - **`polygonCapCurvatureResolution` trades triangles for roundness.** The 5° default is wasted on a
   zoomed-in region where nothing spans enough longitude to bend visibly. See `curvatureFor`.
+- **The border colour must not be near-background.** WebGL draws a line one device pixel wide and
+  will not go thinner, so a region narrower than about two screen pixels is covered completely by
+  its own outline and its neighbours'. The border was `#111`, so those regions rendered as a dark
+  smear on a dark starfield and read as holes punched through the land. It is not a rare case:
+  measured on the shipped world geometry at the standard framing, **41 of 177 regions average under
+  four screen pixels wide**. Luxembourg is 1.5, The Gambia 1.4, and the Caprivi Strip, where this
+  was reported, is 0.28 degrees or about 1.4. Those are the names the quiz most wants found. The
+  border is now a lighter tint than the cap, so a sliver drawn entirely in it still reads as land.
+  Removing the stroke instead does not work: a thin region's cap is the same colour as its
+  neighbour's, so the outline is the only thing that shows it is there at all.
 - **Regions lie flat; `polygonSideColor` must stay falsy.** three-globe gates side-wall geometry on
   that colour alone (`hasSide` sets `includeSides`), and those walls were ~67% of every triangle.
   34,507 down to 11,381 for `world`. Setting a side colour silently triples the geometry and doubles
