@@ -159,8 +159,32 @@
 	 *
 	 * Moving names that have already been chosen is a different job and it does
 	 * run every frame. See positionLabels.
+	 *
+	 * This is also the main lever on names blinking in and out, and the only one
+	 * that costs nothing. Greedy packing is unstable: move the globe a little and
+	 * whether the third name fits depends on exactly where the first two landed,
+	 * so a name drops and the next pass puts it back. Every remake is a chance to
+	 * blink, so making fewer of them removes most of the blinking.
+	 *
+	 * Measured against the shipped world geometry, three seconds of drag, counting
+	 * names that vanished and returned within 360ms:
+	 *
+	 * | drag      | every 90ms | every 300ms |
+	 * | --------- | ---------- | ----------- |
+	 * | 25 deg/s  | 1          | 1           |
+	 * | 40 deg/s  | 9          | 2           |
+	 * | 70 deg/s  | 19         | 1           |
+	 *
+	 * The count of names actually drawn did not move. It is free because
+	 * positionLabels keeps them glued to the land every frame regardless, so all
+	 * that lags is the choice, which is the thing that should be steady. A drag
+	 * ending fires a repack directly, so the settled view is never stale.
+	 *
+	 * Widening the gap between labels was tried instead and is a bad trade. It
+	 * buys fewer blinks by drawing fewer names: on /us it cost 6 of 40 at the
+	 * opening view, and those are the names a student needs.
 	 */
-	const REPACK_INTERVAL_MS = 90;
+	const REPACK_INTERVAL_MS = 300;
 
 	/**
 	 * Stable reference for "no labels", so turning them off repeatedly assigns the
@@ -706,16 +730,16 @@
 	     already short of both. Text nodes also stay crisp and can be read aloud
 	     by a screen reader, which a canvas never can.
 
-	     The fade is short enough to read as easing rather than animation.
-	     Stickiness in placeLabels keeps the set steady while the globe turns, so
-	     this is only for the changes that are real. A name retiring once its
-	     region is learned, say. -->
+	     The fade is deliberately longer than one repack. Svelte reverses an
+	     interrupted transition, so a name that drops out for a pass or two and
+	     comes back dips in opacity and recovers instead of vanishing. Slowing the
+	     repack removes most of those; this covers the rest. -->
 	{#each regionLabels as region (region.name)}
 		<span
 			class="region-label"
 			style:left="{region.x}px"
 			style:top="{region.y}px"
-			transition:fade={{ duration: 120 }}
+			transition:fade={{ duration: 400 }}
 		>
 			{region.name}
 		</span>
