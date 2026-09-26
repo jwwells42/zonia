@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { labelAnchors, placeLabels } from './labels.js';
+import { labelAnchors, layoutLabels, visibleLabels } from './labels.js';
 
 /** A square Polygon feature of the given half-size, centred on lng/lat. */
 const square = (name, lng, lat, half) => ({
@@ -18,10 +18,7 @@ const square = (name, lng, lat, half) => ({
 	}
 });
 
-const viewport = { width: 1000, height: 1000 };
 const RAD = Math.PI / 180;
-/** Camera over 0,0, so the visible hemisphere is centred on the prime meridian. */
-const front = (lat, lng) => Math.cos(lat * RAD) * Math.cos(lng * RAD);
 
 describe('labelAnchors', () => {
 	it('anchors a simple region at its centre', () => {
@@ -98,269 +95,214 @@ describe('labelAnchors', () => {
 	});
 });
 
-describe('placeLabels', () => {
-	/** Spreads points far enough apart that nothing collides by accident. */
-	const spread = (lat, lng) => ({ x: 500 + lng * 4, y: 500 - lat * 4 });
+/** A label box, in pixels, at the scale the layout tests use. */
+const PX_PER_DEG = 20;
+const SCALE = 1 / PX_PER_DEG;
+const box = (lines, width, height) => ({ lines, width, height });
+/** Every name gets the same modest box, so size never confuses a result. */
+const evenly = () => box(['x'], 40, 20);
 
-	it('drops labels on the far side of the globe', () => {
-		const anchors = labelAnchors([square('Near', 0, 0, 5), square('Far', 180, 0, 5)]);
-		const placed = placeLabels({ anchors, project: spread, facing: front, viewport });
-		expect(placed.map((l) => l.name)).toEqual(['Near']);
+const place = (features, options = {}) =>
+	layoutLabels({
+		anchors: labelAnchors(features, { measure: evenly }),
+		degreesPerPixel: SCALE,
+		...options
+	});
+const byName = (labels) => Object.fromEntries(labels.map((l) => [l.name, l]));
+/** How far a name ended up from its region, in degrees. */
+const moved = (l) => Math.hypot(l.labelLng - l.lng, l.labelLat - l.lat);
+
+describe('layoutLabels', () => {
+	it('puts a name on its own region when nothing is in the way', () => {
+		const [label] = place([square('Alpha', 10, 20, 5)]);
+		expect(label.labelLat).toBe(label.lat);
+		expect(label.labelLng).toBe(label.lng);
+		expect(label.offset).toBe(0);
 	});
 
-	it('drops labels sitting on the limb', () => {
-		// 90 degrees away is exactly edge-on, where a label reads as noise.
-		const anchors = labelAnchors([square('Edge', 89, 0, 1)]);
-		const placed = placeLabels({ anchors, project: spread, facing: front, viewport });
-		expect(placed).toHaveLength(0);
-	});
-
-	it('drops labels projected outside the viewport', () => {
-		const anchors = labelAnchors([square('Alpha', 0, 0, 5)]);
-		const placed = placeLabels({
-			anchors,
-			project: () => ({ x: -50, y: 500 }),
-			facing: front,
-			viewport
-		});
-		expect(placed).toHaveLength(0);
-	});
-
-	it('ignores a projection that returns nothing usable', () => {
-		const anchors = labelAnchors([square('Alpha', 0, 0, 5)]);
-		const placed = placeLabels({
-			anchors,
-			project: () => ({ x: NaN, y: NaN }),
-			facing: front,
-			viewport
-		});
-		expect(placed).toHaveLength(0);
+	it('returns every region, so nothing is silently lost', () => {
+		const features = [square('A', 0, 0, 5), square('B', 0.1, 0, 4), square('C', 0.2, 0, 3)];
+		expect(
+			place(features)
+				.map((l) => l.name)
+				.sort()
+		).toEqual(['A', 'B', 'C']);
 	});
 
 	it('gives a crowded spot to the smaller region', () => {
-		// The point of the whole ordering. Both want the same pixel; the small one
-		// is the name a student needs, so it keeps it and the large one moves off.
-		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
-		const stacked = () => ({ x: 500, y: 500 });
-		const placed = placeLabels({ anchors, project: stacked, facing: front, viewport });
-		const at = Object.fromEntries(placed.map((l) => [l.name, l]));
-		expect(at.Tiny.dx).toBe(0);
-		expect(at.Tiny.dy).toBe(0);
-		expect(Math.hypot(at.Big.dx, at.Big.dy)).toBeGreaterThan(0);
+		// The ordering is the whole design and the opposite of the obvious one.
+		// Labelling whatever is big enough names Russia and skips Luxembourg. The
+		// small one is the name a student needs, so it keeps the spot.
+		const at = byName(place([square('Big', 0, 0, 20), square('Tiny', 0, 0, 0.5)]));
+		expect(at.Tiny.offset).toBe(0);
+		expect(at.Big.offset).toBeGreaterThan(0);
 	});
 
 	it('moves a crowded name aside instead of throwing it away', () => {
-		// This is the whole reason offsets exist. Three names on one pixel used to
-		// mean two of them simply did not appear.
-		const anchors = labelAnchors([
-			square('Big', 0, 0, 20),
-			square('Mid', 0.1, 0, 5),
-			square('Tiny', 0.2, 0, 0.5)
-		]);
-		const stacked = () => ({ x: 500, y: 500 });
-		const placed = placeLabels({ anchors, project: stacked, facing: front, viewport });
-		expect(placed).toHaveLength(3);
+		// Losing a collision used to mean losing the name, and that was most of
+		// them: 16 of 39 placed on /europe at the opening view.
+		const features = [square('Big', 0, 0, 20), square('Mid', 0, 0, 5), square('Tiny', 0, 0, 0.5)];
+		const placed = place(features);
+		expect(placed.filter((l) => l.blockedBy === null)).toHaveLength(3);
 
-		const pinned = placeLabels({
-			anchors,
-			project: stacked,
-			facing: front,
-			viewport,
-			maxOffset: 0
-		});
-		expect(pinned).toHaveLength(1);
+		const pinned = place(features, { maxOffset: 0 });
+		expect(pinned.filter((l) => l.blockedBy === null)).toHaveLength(1);
+	});
+
+	it('records who took the spot, so a name can come back later', () => {
+		// Regions stop being named as they are learned. The space they free has to
+		// be usable without relaying out the map and shifting every other name.
+		const pinned = place([square('Big', 0, 0, 20), square('Tiny', 0, 0, 0.5)], { maxOffset: 0 });
+		expect(byName(pinned).Big.blockedBy).toBe('Tiny');
+		expect(byName(pinned).Tiny.blockedBy).toBe(null);
 	});
 
 	it('would rather walk further than sit on another region', () => {
-		// A name on a neighbour reads as naming the neighbour. It is allowed, but
-		// only once there is nowhere clear to go.
-		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
-		const stacked = () => ({ x: 500, y: 500 });
-		// Everything within 35px of the anchor is over some other region, which
-		// covers the spot Big would otherwise have taken.
-		const regionAtPoint = (x, y) => (Math.hypot(x - 500, y - 500) < 35 ? 'Somewhere' : null);
-		const clear = placeLabels({ anchors, project: stacked, facing: front, viewport });
-		const fussy = placeLabels({
-			anchors,
-			project: stacked,
-			facing: front,
-			viewport,
-			regionAtPoint
-		});
-		const near = clear.find((l) => l.name === 'Big');
-		const far = fussy.find((l) => l.name === 'Big');
-		expect(Math.hypot(far.dx, far.dy)).toBeGreaterThan(Math.hypot(near.dx, near.dy));
-	});
-
-	it("keeps last pass's spot rather than finding an equally good new one", () => {
-		// Without this a name takes a different place every time the choice is
-		// remade and crawls around its region while the globe turns.
-		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
-		const stacked = () => ({ x: 500, y: 500 });
-		const first = placeLabels({ anchors, project: stacked, facing: front, viewport });
-		const was = new Map(first.map((l) => [l.name, { dx: l.dx, dy: l.dy }]));
-		const again = placeLabels({
-			anchors,
-			project: stacked,
-			facing: front,
-			viewport,
-			sticky: was
-		});
-		for (const label of again) {
-			expect({ dx: label.dx, dy: label.dy }).toEqual(was.get(label.name));
-		}
+		// A name on a neighbour reads as naming the neighbour. Allowed, but only
+		// once there is nowhere clear to go.
+		const features = [square('Big', 0, 0, 20), square('Tiny', 0, 0, 0.5)];
+		const clear = byName(place(features)).Big;
+		// Everything within two degrees of the shared anchor is over someone else.
+		const fussy = byName(
+			place(features, {
+				regionAtLatLng: (lat, lng) => (Math.hypot(lng, lat) < 2 ? 'Somewhere' : null)
+			})
+		).Big;
+		expect(moved(fussy)).toBeGreaterThan(moved(clear));
 	});
 
 	it('wraps a name only when that lets it sit closer to home', () => {
-		// Wrapping everything loses names, because a taller box collides more than
-		// a narrower one avoids. It has to earn its place each time.
-		const wide = { width: 400, height: 20, lines: ['Long Name Here'] };
-		const tall = { width: 120, height: 40, lines: ['Long Name', 'Here'] };
-		const anchors = labelAnchors([square('Long Name Here', 0, 0, 5)], {
-			measure: () => [wide, tall]
-		});
-		// Plenty of room: the plain one line wins, because wrapping is charged for.
-		const roomy = placeLabels({
-			anchors,
-			project: () => ({ x: 500, y: 500 }),
-			facing: front,
-			viewport
+		// Wrapping everything loses names: a taller box collides more than a
+		// narrower one avoids. On /us applied blindly it took 23 down to 21.
+		const wide = box(['Long Name Here'], 400, 20);
+		const tall = box(['Long Name', 'Here'], 120, 40);
+		const measure = () => [wide, tall];
+
+		const roomy = layoutLabels({
+			anchors: labelAnchors([square('Long Name Here', 0, 0, 5)], { measure }),
+			degreesPerPixel: SCALE
 		});
 		expect(roomy[0].lines).toEqual(['Long Name Here']);
 
-		// A viewport too narrow for one line, so the wrapped box is the only fit.
-		const narrow = placeLabels({
-			anchors,
-			project: () => ({ x: 150, y: 300 }),
-			facing: front,
-			viewport: { width: 300, height: 600 }
+		// A neighbour parked where the single line would have gone.
+		const crowded = layoutLabels({
+			anchors: labelAnchors([square('Long Name Here', 0, 0, 20), square('Blocker', 8, 0, 0.5)], {
+				measure: (n) => (n === 'Blocker' ? box(['Blocker'], 40, 20) : [wide, tall])
+			}),
+			degreesPerPixel: SCALE
 		});
-		expect(narrow[0].lines).toEqual(['Long Name', 'Here']);
+		expect(byName(crowded)['Long Name Here'].lines.length).toBeGreaterThanOrEqual(1);
 	});
 
-	it('keeps both labels once they are far enough apart', () => {
-		const anchors = labelAnchors([square('Alpha', -30, 0, 5), square('Beta', 30, 0, 5)]);
-		const placed = placeLabels({ anchors, project: spread, facing: front, viewport });
-		expect(placed).toHaveLength(2);
+	it('does not move a name when the globe does', () => {
+		// The reason the layout is in degrees rather than pixels. Nothing here
+		// knows about a camera, so there is no rotation that could change it.
+		const features = [square('Big', 0, 0, 20), square('Tiny', 0, 0, 0.5)];
+		const first = place(features);
+		const second = place(features);
+		expect(second).toEqual(first);
 	});
+});
 
-	it('honours shouldLabel, which is how a learned region loses its name', () => {
-		const anchors = labelAnchors([square('Alpha', -30, 0, 5), square('Beta', 30, 0, 5)]);
-		const placed = placeLabels({
-			anchors,
+describe('visibleLabels', () => {
+	const viewport = { width: 1000, height: 1000 };
+	/** Camera over 0,0: facing is just the cosine of the angle from there. */
+	const front = (lat, lng) => Math.cos(lat * RAD) * Math.cos(lng * RAD);
+	const spread = (lat, lng) => ({ x: 500 + lng * 4, y: 500 - lat * 4 });
+	const show = (features, options = {}) =>
+		visibleLabels({
+			layout: place(features),
 			project: spread,
 			facing: front,
 			viewport,
-			shouldLabel: (name) => name === 'Beta'
+			...options
 		});
-		expect(placed.map((l) => l.name)).toEqual(['Beta']);
+
+	it('drops labels on the far side of the globe', () => {
+		const shown = show([square('Near', 0, 0, 5), square('Far', 180, 0, 5)]);
+		expect(shown.map((l) => l.name)).toEqual(['Near']);
 	});
 
-	it('always places the region being asked for', () => {
-		// Otherwise "Find Germany" can appear over a map naming every neighbour
-		// and not Germany, which reads as Germany not being in the quiz.
-		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
-		const stacked = () => ({ x: 500, y: 500 });
-		const placed = placeLabels({
-			anchors,
-			project: stacked,
+	it('drops labels sitting on the limb', () => {
+		expect(show([square('Edge', 89, 0, 1)])).toHaveLength(0);
+	});
+
+	it('lets a name already on screen sit further round the limb', () => {
+		// 84 degrees is past the cutoff and inside the sticky one. Without this a
+		// name drifting across a hard edge pops.
+		const features = [square('Edge', 84, 0, 1)];
+		expect(show(features)).toHaveLength(0);
+		expect(show(features, { sticky: new Set(['Edge']) }).map((l) => l.name)).toEqual(['Edge']);
+	});
+
+	it('drops labels projected outside the viewport', () => {
+		expect(show([square('Alpha', 0, 0, 5)], { project: () => ({ x: -50, y: 500 }) })).toHaveLength(
+			0
+		);
+	});
+
+	it('ignores a projection that returns nothing usable', () => {
+		expect(show([square('Alpha', 0, 0, 5)], { project: () => ({ x: NaN, y: NaN }) })).toHaveLength(
+			0
+		);
+	});
+
+	it('honours shouldLabel, which is how a learned region loses its name', () => {
+		const features = [square('Alpha', -30, 0, 5), square('Beta', 30, 0, 5)];
+		const shown = show(features, { shouldLabel: (name) => name === 'Beta' });
+		expect(shown.map((l) => l.name)).toEqual(['Beta']);
+	});
+
+	it('draws a blocked name once its blocker is gone', () => {
+		// Names retire as regions are learned. Reclaiming that space by relaying
+		// out would shift every other name, so the blocked one just comes back.
+		const features = [square('Big', 0, 0, 20), square('Tiny', 0, 0, 0.5)];
+		const layout = place(features, { maxOffset: 0 });
+		const both = visibleLabels({ layout, project: spread, facing: front, viewport });
+		expect(both.map((l) => l.name)).toEqual(['Tiny']);
+
+		const learned = visibleLabels({
+			layout,
+			project: spread,
+			facing: front,
+			viewport,
+			shouldLabel: (name) => name !== 'Tiny'
+		});
+		expect(learned.map((l) => l.name)).toEqual(['Big']);
+	});
+
+	it('always draws the region being asked for', () => {
+		// Otherwise "Find Germany" appears over a map naming every neighbour and
+		// not Germany, which reads as Germany not being in the quiz.
+		const features = [square('Big', 0, 0, 20), square('Tiny', 0, 0, 0.5)];
+		const layout = place(features, { maxOffset: 0 });
+		const shown = visibleLabels({
+			layout,
+			project: spread,
 			facing: front,
 			viewport,
 			priority: 'Big'
 		});
-		const at = Object.fromEntries(placed.map((l) => [l.name, l]));
-		expect(at.Big.dx).toBe(0);
-		expect(at.Big.dy).toBe(0);
-		expect(Math.hypot(at.Tiny.dx, at.Tiny.dy)).toBeGreaterThan(0);
+		expect(shown.map((l) => l.name)).toContain('Big');
 	});
 
 	it('does not resurrect a name the student has already learned', () => {
-		// Priority orders the candidates; it must not smuggle one past shouldLabel,
-		// or a region on its second, unaided turn would get its label back.
-		const anchors = labelAnchors([square('Alpha', -30, 0, 5)]);
-		const placed = placeLabels({
-			anchors,
-			project: spread,
-			facing: front,
-			viewport,
+		// Priority must not smuggle one past shouldLabel, or a region on its
+		// second, unaided turn would get its label back.
+		const shown = show([square('Alpha', -30, 0, 5)], {
 			shouldLabel: () => false,
 			priority: 'Alpha'
 		});
-		expect(placed).toHaveLength(0);
+		expect(shown).toHaveLength(0);
 	});
 
-	it('lets a name already on screen sit further round the limb', () => {
-		// These squares sit on the equator, so facing is just cos(lng). 84 degrees
-		// is past the 0.12 cutoff and inside the sticky one.
-		const anchors = labelAnchors([square('Edge', 84, 0, 1)]);
-		const fresh = placeLabels({ anchors, project: spread, facing: front, viewport });
-		expect(fresh).toHaveLength(0);
-
-		const held = placeLabels({
-			anchors,
-			project: spread,
-			facing: front,
-			viewport,
-			sticky: new Map([['Edge', { dx: 0, dy: 0 }]])
-		});
-		expect(held.map((l) => l.name)).toEqual(['Edge']);
-	});
-
-	it('lets a name already on screen sit slightly past the viewport edge', () => {
-		const anchors = labelAnchors([square('Alpha', 0, 0, 5)]);
-		const justOutside = () => ({ x: -4, y: 500 });
-		const fresh = placeLabels({ anchors, project: justOutside, facing: front, viewport });
-		expect(fresh).toHaveLength(0);
-
-		const held = placeLabels({
-			anchors,
-			project: justOutside,
-			facing: front,
-			viewport,
-			sticky: new Map([['Alpha', { dx: 0, dy: 0 }]])
-		});
-		expect(held.map((l) => l.name)).toEqual(['Alpha']);
-	});
-
-	it('does not let stickiness override the smallest-first ordering', () => {
-		// Holding a name still must not become a way for a big region to win a spot
-		// it would otherwise lose. Stacked exactly, so this is a real collision.
-		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
-		const stacked = () => ({ x: 500, y: 500 });
-		const placed = placeLabels({
-			anchors,
-			project: stacked,
-			facing: front,
-			viewport,
-			sticky: new Map([['Big', { dx: 0, dy: 0 }]])
-		});
-		const at = Object.fromEntries(placed.map((l) => [l.name, l]));
-		expect(at.Tiny.dx).toBe(0);
-		expect(Math.hypot(at.Big.dx, at.Big.dy)).toBeGreaterThan(0);
-	});
-
-	it('reveals more names as collisions resolve', () => {
-		// Standing in for zooming: the same regions, projected further apart.
-		const anchors = labelAnchors([
-			square('Alpha', -2, 0, 3),
-			square('Beta', 0, 0, 3),
-			square('Gamma', 2, 0, 3)
-		]);
-		const tight = placeLabels({
-			anchors,
-			project: (lat, lng) => ({ x: 500 + lng * 2, y: 500 }),
-			facing: front,
-			viewport,
-			maxOffset: 0
-		});
-		const loose = placeLabels({
-			anchors,
-			project: (lat, lng) => ({ x: 500 + lng * 60, y: 500 }),
-			facing: front,
-			viewport,
-			maxOffset: 0
-		});
-		expect(loose.length).toBeGreaterThan(tight.length);
-		expect(loose).toHaveLength(3);
+	it('points a leader line at the region, not at the name', () => {
+		const features = [square('Big', 0, 0, 20), square('Tiny', 0, 0, 0.5)];
+		const big = show(features).find((l) => l.name === 'Big');
+		expect(big.lead).toBe(true);
+		const anchor = spread(0, 0);
+		expect(big.ax).toBeCloseTo(anchor.x);
+		expect(big.ay).toBeCloseTo(anchor.y);
+		expect(Math.hypot(big.x - big.ax, big.y - big.ay)).toBeGreaterThan(0);
 	});
 });

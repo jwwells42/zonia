@@ -503,47 +503,51 @@ placement rules can be tested without a browser.
   close each call is, and 8px cost 7 of 39 names on `/world`, 4 of 23 on `/us`. The boxes already
   carry the label's own padding, so boxes that touch are not words that touch.
 
-### A crowded name moves, it does not vanish
+### A name is welded to the globe, not laid out on the screen
 
-Losing a collision used to mean losing the name. That was most of them, and it was also where the
-flickering came from, since the contest is remade as the globe turns.
+**The arrangement is decided in degrees of latitude and longitude, once, and the renderer only
+projects it.** That is the whole design and it is the opposite of the obvious one.
 
-So `placeLabels` searches outward from the anchor and the renderer draws a leader line back. At
-the opening views, 1280x624:
+The obvious way is to work out what fits on the screen. That is what this did, and it was wrong:
+the screen changes every time the globe turns, while the thing being decided does not, because
+countries do not move relative to one another. Solving it per frame re-derived a stable answer
+from unstable inputs, and the names crawled and blinked as the answer wobbled. No amount of
+hysteresis fixes that. The frame of reference is the bug.
 
-| quiz           | visible | named before | named now | with a line |
-| -------------- | ------- | ------------ | --------- | ----------- |
-| `/europe`      | 39      | 16           | **32**    | 21          |
-| `/us`          | 48      | 23           | **43**    | 21          |
-| `/africa`      | 51      | 32           | **51**    | 13          |
-| `/world`       | 99      | 39           | **77**    | 37          |
-| `/middle-east` | 15      | 9            | **15**    | 4           |
+`layoutLabels` picks a latitude and longitude for every name in the quiz. `visibleLabels`
+projects and culls and makes no decisions at all. A name rides with the land because it is part
+of the land.
 
-Everything is scored in pixels of travel, so the preferences are comparable and tunable in one
-place. Sitting on another region of the quiz costs `COVER_COST`, wrapping onto two lines costs
-`WRAP_COST`, and staying where the name was last pass refunds `KEEP_BONUS`.
+Measured at the opening views, 1280x624, then turning the globe right round in 8 degree steps:
 
-- **The anchor wins outright when it is free.** A name belongs on its own region, and without
-  this rule the refund for staying put would park a name permanently beside a region it could sit
-  on.
-- **Covering a neighbour is allowed, not free.** On a crowded map some names have nowhere clear
-  to go, and a name on a neighbour with a line home beats no name at all. Preferring clear ground
-  costs about two names on `/world` and leaves 11 of 77 over another region.
+| quiz           | visible | named before | named now | with a line | drift | blinks |
+| -------------- | ------- | ------------ | --------- | ----------- | ----- | ------ |
+| `/europe`      | 39      | 16           | **38**    | 22          | 0     | 0      |
+| `/us`          | 48      | 23           | **48**    | 21          | 0     | 0      |
+| `/africa`      | 51      | 32           | **51**    | 7           | 0     | 0      |
+| `/world`       | 94      | 39           | **88**    | 25          | 0     | 0      |
+| `/middle-east` | 15      | 9            | **15**    | 4           | 0     | 0      |
+
+Rules that hold this together:
+
+- **Only the scale can invalidate a layout.** Text is measured in pixels and the layout works in
+  degrees, so the two are tied by the camera altitude. Zooming asks for a new arrangement.
+  Turning the globe never does, and `relayout` is not on the rotation path at all.
+- **The anchor wins outright when it is free.** A name belongs on its own region.
+- **Everything is priced in offset steps**, so the preferences are comparable and tunable in one
+  place: `COVER_COST` to sit on another region, `WRAP_COST` to go to two lines.
 - **Wrapping is offered, never imposed.** Applied to every name it loses names, because a taller
-  box collides more than a narrower one avoids: on `/us` it took 23 down to 21. Charged for, it
-  is used once or twice per quiz, which is the case it is for, like a long name on a round
-  country.
-- **The displacement is decided at repack and then held.** `placeLabels` returns `dx`/`dy` from
-  the anchor rather than absolute coordinates, so the renderer re-projects the anchor every frame
-  and adds the offset. Names stay glued to the land, and they do not take a different spot every
-  time the choice is remade. Over three seconds of drag on `/world` the refund cuts the number
-  that move from 103 to 78.
-- **Mind the search bound.** The loop stops once the remaining rings are further away than the
-  best answer so far. That bound has to allow for `KEEP_BONUS`, or the search ends before it ever
-  reaches a name's previous spot and nothing ever holds its place. This was wrong once and the
-  only symptom was that tuning the constant changed nothing.
-- **Lines are SVG, not WebGL.** One `<svg>` for all of them. The globe has no draw calls to
-  spare, and a leader line is two coordinates and a stroke.
+  box collides more than a narrower one avoids: on `/us` it took 23 down to 21.
+- **A blocked name records who blocked it.** Names retire as regions are learned, and that space
+  should be reusable without relaying out and shifting everything else, so `visibleLabels` draws
+  a blocked name whenever its blocker is not on the map.
+- **Answering redraws, it never relays out.** Reclaiming one gap is not worth moving every other
+  name.
+- **Leader lines are SVG, not WebGL**, one element for all of them, aimed at the pole of
+  inaccessibility so they point at the middle of the shape rather than at an edge.
 
-Leader lines aim at the pole of inaccessibility, the same anchor the name would have used, so
-they point at the middle of the shape rather than at an edge.
+**Still open.** Most names sit beside their region rather than on it. Fitting text inside the
+shape, turned to its axis and scaled down, would bring more of them home. A first measurement
+suggested almost none would fit, but it used the distance to the globe's centre instead of its
+near surface and so understated the available pixels by about 1.7x at the middle of the view.
+Redo it before building on it.

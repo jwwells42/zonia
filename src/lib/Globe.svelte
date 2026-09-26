@@ -8,7 +8,7 @@
 	import { feature } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
-	import { labelAnchors, placeLabels, LEADER_MIN } from './labels.js';
+	import { labelAnchors, layoutLabels, visibleLabels } from './labels.js';
 	import { regionIndex, regionAt } from './pick.js';
 	import { capResolution } from './geo.js';
 	import { datasetUrl } from './regions.js';
@@ -167,41 +167,27 @@
 	}
 
 	/**
-	 * How often the *choice* of which names to draw is remade while the globe is
-	 * moving.
+	 * How often the arrangement is worked out again while the globe is moving.
 	 *
-	 * Deciding costs a projection and a facing test for every region in the quiz,
-	 * then a collision pass over whatever survives. That is far too much to do on
-	 * every frame and it does not need to be: which names fit changes slowly.
+	 * Rarely, because it almost never needs to be. `layoutLabels` decides where
+	 * every name goes in degrees on the globe, not in pixels on the screen, so
+	 * turning the world does not change the answer. Only the scale does, which
+	 * means only zooming.
 	 *
-	 * Moving names that have already been chosen is a different job and it does
-	 * run every frame. See positionLabels.
-	 *
-	 * This is also the main lever on names blinking in and out, and the only one
-	 * that costs nothing. Greedy packing is unstable: move the globe a little and
-	 * whether the third name fits depends on exactly where the first two landed,
-	 * so a name drops and the next pass puts it back. Every remake is a chance to
-	 * blink, so making fewer of them removes most of the blinking.
-	 *
-	 * Measured against the shipped world geometry, three seconds of drag, counting
-	 * names that vanished and returned within 360ms:
-	 *
-	 * | drag      | every 90ms | every 300ms |
-	 * | --------- | ---------- | ----------- |
-	 * | 25 deg/s  | 1          | 1           |
-	 * | 40 deg/s  | 9          | 2           |
-	 * | 70 deg/s  | 19         | 1           |
-	 *
-	 * The count of names actually drawn did not move. It is free because
-	 * positionLabels keeps them glued to the land every frame regardless, so all
-	 * that lags is the choice, which is the thing that should be steady. A drag
-	 * ending fires a repack directly, so the settled view is never stale.
-	 *
-	 * Widening the gap between labels was tried instead and is a bad trade. It
-	 * buys fewer blinks by drawing fewer names: 8px cost 7 of 39 on /world and
-	 * 4 of 23 on /us, and those are the names a student needs.
+	 * This ran every 90ms for a while, against the screen, and the labels crawled
+	 * and blinked the whole time a drag was in progress. That was not a tuning
+	 * problem. It was re-deriving a stable answer from unstable inputs.
 	 */
-	const REPACK_INTERVAL_MS = 300;
+	const RELAYOUT_INTERVAL_MS = 400;
+
+	/**
+	 * How much the scale has to change before the arrangement is worth redoing.
+	 *
+	 * Text is measured in pixels and the layout works in degrees, so the two are
+	 * tied together by the camera altitude. A small drift does not matter and
+	 * redoing it would move names for no reason.
+	 */
+	const RELAYOUT_SCALE_STEP = 1.15;
 
 	/**
 	 * Stable reference for "no labels", so turning them off repeatedly assigns the
@@ -209,15 +195,20 @@
 	 */
 	const NO_LABELS = Object.freeze([]);
 
-	/** Placed labels, in screen coordinates. The one globe value the template reads. */
+	/** Labels to draw, in screen coordinates. The one globe value the template reads. */
 	let regionLabels = $state(NO_LABELS);
 	/** Just the ones far enough from their region to need a line drawn. */
 	let leaders = $derived(regionLabels.filter((label) => label.lead));
 	/**
-	 * The same labels as last chosen, still carrying their anchors. Plain, not
-	 * $state: this is what positionLabels re-projects, and nothing renders it.
+	 * Where every name in the quiz goes, in degrees on the globe. Plain, not
+	 * $state: nothing renders it, and it is rebuilt whole when it changes.
 	 */
-	let shownLabels = [];
+	let layout = [];
+	/** The scale the layout was built for, so we know when it is stale. */
+	let layoutScale = 0;
+	/** Names drawn last pass, for the limb and viewport hysteresis. */
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const drawnLast = new Set();
 	/**
 	 * Whether names are showing.
 	 *
@@ -273,78 +264,89 @@
 	}
 
 	/**
-	 * Re-chooses which names to draw. The expensive half, so it runs on a timer.
+	 * Degrees of arc per screen pixel at the middle of the view.
+	 *
+	 * The layout works in degrees and text is measured in pixels, so this is what
+	 * ties them together. Measured rather than derived, because it depends on the
+	 * camera altitude and on the projection, and getting it from the projection
+	 * itself cannot be wrong.
 	 */
-	function repackLabels() {
+	function degreesPerPixel() {
+		const { lat, lng } = world.toGeoCoords(world.camera().position);
+		const project = screenProjector();
+		const here = project(lat, lng);
+		const step = project(lat + (lat > 0 ? -1 : 1), lng);
+		const pixels = Math.hypot(step.x - here.x, step.y - here.y);
+		return pixels > 0 ? 1 / pixels : 0;
+	}
+
+	/**
+	 * Works out where every name in the quiz goes. Rare, and never on rotation.
+	 *
+	 * See `layoutLabels`. The whole arrangement is decided in degrees on the
+	 * globe, so turning the world cannot change it and the names cannot drift.
+	 */
+	function relayout() {
+		if (!world || !containerEl || !quiz || !anchors.length) return;
+		const scale = degreesPerPixel();
+		if (!scale) return;
+		layout = layoutLabels({
+			anchors,
+			degreesPerPixel: scale,
+			// So a name pushed off its own region prefers ground that is not another
+			// one. A preference, not a rule: on a crowded map some names have
+			// nowhere else, and a name on a neighbour with a line home beats none.
+			regionAtLatLng: (lat, lng) => regionAt(regions, lat, lng, 0)
+		});
+		layoutScale = scale;
+		drawLabels();
+	}
+
+	/** Redoes the layout only if the camera has zoomed far enough to matter. */
+	function relayoutIfScaleMoved() {
+		if (!world || !layout.length) return relayout();
+		const scale = degreesPerPixel();
+		if (!scale || !layoutScale) return;
+		const ratio = scale > layoutScale ? scale / layoutScale : layoutScale / scale;
+		if (ratio >= RELAYOUT_SCALE_STEP) relayout();
+	}
+
+	/**
+	 * Projects the layout and culls what is off screen. Runs on every camera
+	 * change, which during a drag means every frame.
+	 *
+	 * Cheap, and it has to be: it is what keeps names glued to the land. It
+	 * cannot move a name relative to its region, because it makes no decisions.
+	 */
+	function drawLabels() {
 		if (!world || !containerEl || !quiz) return;
-		if (!labelsOn) {
-			shownLabels = [];
+		if (!labelsOn || !layout.length) {
 			regionLabels = NO_LABELS;
+			drawnLast.clear();
 			return;
 		}
-
 		const { width, height } = containerEl.getBoundingClientRect();
-		shownLabels = placeLabels({
-			anchors,
+		const next = visibleLabels({
+			layout,
 			project: screenProjector(),
 			facing: cameraFacing(),
 			viewport: { width, height },
 			shouldLabel: (name) => quiz.state.scaffolded(name),
-			// "Find Germany" over a map showing every name but Germany's reads as
+			// "Find Germany" over a map naming every neighbour but Germany reads as
 			// Germany not being in the quiz.
 			priority: quiz.state.target,
-			// Where each name went last time. Holds the set steady at the limb, and
-			// stops a displaced name taking a different spot every pass and crawling
-			// around its region. See labels.js.
-			sticky: new Map(shownLabels.map((label) => [label.name, { dx: label.dx, dy: label.dy }])),
-			// So a name pushed off its own region prefers ground that is not another
-			// one. It is a preference, not a rule: on a crowded map some names have
-			// nowhere else, and a name on a neighbour with a line home beats no name.
-			regionAtPoint: regionAtCanvas
+			sticky: drawnLast
 		});
-		positionLabels();
-	}
-
-	/**
-	 * Moves the names already chosen to where the globe has got to. Runs on every
-	 * camera change, which during a drag means every frame.
-	 *
-	 * This used to be part of the throttled pass, and on a classroom panel that
-	 * was the bug people saw: at 20 fps a 90ms throttle leaves the names a couple
-	 * of frames behind the land, so a finger sweep drags the globe out from under
-	 * them and the words visibly swim across the map before catching up.
-	 *
-	 * Doing it every frame is affordable because it is not the expensive part. The
-	 * throttled pass projects every region in the quiz and runs a collision pass;
-	 * this projects the twenty or thirty that are actually on screen and writes
-	 * two style properties each.
-	 */
-	function positionLabels() {
-		if (!world) return;
-		if (!shownLabels.length) {
-			regionLabels = NO_LABELS;
-			return;
-		}
-		const project = screenProjector();
-		regionLabels = shownLabels.map((label) => {
-			const at = project(label.lat, label.lng);
-			return {
-				...label,
-				// Where the region is, which is where a leader line points.
-				ax: at.x,
-				ay: at.y,
-				x: at.x + label.dx,
-				y: at.y + label.dy,
-				lead: Math.hypot(label.dx, label.dy) >= LEADER_MIN
-			};
-		});
+		drawnLast.clear();
+		for (const label of next) drawnLast.add(label.name);
+		regionLabels = next;
 	}
 
 	// Repack whenever names are switched on or off, from either source. Doing it
 	// here rather than in the click handler means the globe is never rebuilt.
 	$effect(() => {
 		labelsOn;
-		repackLabels();
+		drawLabels();
 	});
 
 	/**
@@ -365,7 +367,7 @@
 		if (!world || !containerEl) return;
 		const { width, height } = containerEl.getBoundingClientRect();
 		if (width && height) world.width(width).height(height);
-		repackLabels();
+		relayout();
 	}
 
 	function showFeedback(name, kind) {
@@ -385,9 +387,10 @@
 		score = quiz.state.score;
 		learned = quiz.state.masteredCount;
 		showFeedback(name, result.correct ? 'correct' : 'wrong');
-		// A correct click is what retires a region's name, so the labels have to be
-		// repacked: losing one frees space a crowded-out neighbour can now use.
-		repackLabels();
+		// A correct click retires a region's name. Nothing is rearranged for it:
+		// any name that lost this one's space simply gets drawn again. Relaying
+		// out would shift every other label to reclaim one gap.
+		drawLabels();
 
 		if (result.won) {
 			won = true;
@@ -680,21 +683,23 @@
 			 */
 			const controls = world.controls();
 			const onChange = () => {
-				positionLabels();
+				drawLabels();
+				// Only zooming can invalidate the arrangement, and checking costs two
+				// projections, so it goes on a timer rather than every frame.
 				if (labelTimer) return;
 				labelTimer = setTimeout(() => {
 					labelTimer = null;
-					repackLabels();
-				}, REPACK_INTERVAL_MS);
+					relayoutIfScaleMoved();
+				}, RELAYOUT_INTERVAL_MS);
 			};
 			controls.addEventListener('change', onChange);
-			controls.addEventListener('end', repackLabels);
+			controls.addEventListener('end', relayoutIfScaleMoved);
 			cleanUpControls = () => {
 				controls.removeEventListener('change', onChange);
-				controls.removeEventListener('end', repackLabels);
+				controls.removeEventListener('end', relayoutIfScaleMoved);
 			};
 
-			repackLabels();
+			relayout();
 
 			resizeObserver = new ResizeObserver(() => fit());
 			resizeObserver.observe(containerEl);
@@ -725,7 +730,7 @@
 	<link rel="preload" as="image" href={globeBackground} />
 </svelte:head>
 
-<svelte:window onresize={repackLabels} />
+<svelte:window onresize={relayout} />
 
 {#if confetti}
 	<div id="confetti-container" aria-hidden="true">
