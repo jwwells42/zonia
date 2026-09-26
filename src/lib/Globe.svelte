@@ -1,5 +1,6 @@
 <script>
 	import { onMount, tick } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import GlobeGL from 'globe.gl';
 	// MeshBasic, not Lambert: this is what three-globe builds its own default cap
 	// material from, so the unlit look of the original polygons is preserved.
@@ -114,10 +115,13 @@
 	/** Re-runs the cap-material accessor without allocating a new closure. */
 	const repaint = () => world?.polygonCapMaterial(materialFor);
 
-	/** Must match the .region-label rule below, since text is measured against it. */
-	const LABEL_FONT = '12px Poppins, sans-serif';
-	/** Horizontal and vertical padding on a label box, from the same rule. */
-	const LABEL_PADDING = [8, 8];
+	// All four must match the .region-label rule below, because collision is
+	// tested against the box they describe.
+	const LABEL_FONT_SIZE = 12;
+	const LABEL_FONT = `${LABEL_FONT_SIZE}px Poppins, sans-serif`;
+	const LABEL_LINE_HEIGHT = 1.4;
+	/** Vertical then horizontal, as in the CSS shorthand. Per side. */
+	const LABEL_PADDING = [1, 4];
 
 	/**
 	 * Real text metrics for a name, so collision uses the box that will actually
@@ -132,16 +136,16 @@
 		const ctx = document.createElement('canvas').getContext('2d');
 		if (!ctx) return undefined;
 		ctx.font = LABEL_FONT;
-		return (name) => {
-			const m = ctx.measureText(name);
-			// Ascent and descent give the real cap-to-tail height of this string,
-			// which is tighter and truer than assuming a line box.
-			const height = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
-			return {
-				width: m.width + LABEL_PADDING[0],
-				height: (height || 12) + LABEL_PADDING[1]
-			};
-		};
+		// Height is the line box, not the glyphs. Measuring ascent and descent
+		// looks more precise and is wrong: it gives about 9px for a name with no
+		// descender, while the span the browser lays out is always 18.8px tall.
+		// Collision then passed pairs that overlap once drawn, which is the exact
+		// failure the comment above warns about.
+		const height = LABEL_FONT_SIZE * LABEL_LINE_HEIGHT + LABEL_PADDING[0] * 2;
+		return (name) => ({
+			width: ctx.measureText(name).width + LABEL_PADDING[1] * 2,
+			height
+		});
 	}
 
 	/**
@@ -244,7 +248,10 @@
 			shouldLabel: (name) => quiz.state.scaffolded(name),
 			// "Find Germany" over a map showing every name but Germany's reads as
 			// Germany not being in the quiz.
-			priority: quiz.state.target
+			priority: quiz.state.target,
+			// What was chosen last time, which placeLabels holds a little harder so
+			// the set stops flickering as the globe turns. See labels.js.
+			sticky: new Set(shownLabels.map((label) => label.name))
 		});
 		positionLabels();
 	}
@@ -662,9 +669,19 @@
 	     layer builds a TextGeometry per label from a typeface font, which on the
 	     world quiz would be 177 more meshes and 177 more draw calls on hardware
 	     already short of both. Text nodes also stay crisp and can be read aloud
-	     by a screen reader, which a canvas never can. -->
+	     by a screen reader, which a canvas never can.
+
+	     The fade is short enough to read as easing rather than animation.
+	     Stickiness in placeLabels keeps the set steady while the globe turns, so
+	     this is only for the changes that are real. A name retiring once its
+	     region is learned, say. -->
 	{#each regionLabels as region (region.name)}
-		<span class="region-label" style:left="{region.x}px" style:top="{region.y}px">
+		<span
+			class="region-label"
+			style:left="{region.x}px"
+			style:top="{region.y}px"
+			transition:fade={{ duration: 120 }}
+		>
 			{region.name}
 		</span>
 	{/each}
