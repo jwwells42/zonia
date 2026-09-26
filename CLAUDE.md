@@ -190,8 +190,21 @@ is the game. There is no hover before a tap, so the answer is stale or null. Wor
 slides more than a pixel sets `isPointerDragging`, and `clickAfterDrag` defaults to false, so the
 tap is discarded without a sound. A fingertip on a wall panel always slides more than a pixel.
 `Globe.svelte` now does its own tap detection and asks `pick.js` what is under the finger, which
-has no such state to get wrong. It also turns `enablePointerInteraction` off the first time a
-finger is used, since hover means nothing on a panel and the raycast is pure cost there.
+has no such state to get wrong.
+
+**The highlight has to come from the same place as the answer.** Moving taps to `pick.js` and
+leaving hover on `onPolygonHover` left two different ideas of which region is under the pointer,
+and near a border they disagree: the pointer lit one country and the click answered its
+neighbour. The cause is in the hover raycaster. three-globe gives each polygon a cap mesh and a
+`LineSegments` outline and scales the outline to sit above the cap, and three.js counts a line as
+hit whenever the ray passes within `raycaster.params.Line.threshold` of it, which
+three-render-objects leaves at 1. The globe radius is 100, so that is several screen pixels of
+invisible grab zone, and both neighbours draw an outline along a shared border.
+
+So `enablePointerInteraction` is off from construction and globe.gl does no picking at all. One
+function, `regionUnder`, answers both, with the same tap tolerance for both. They cannot disagree
+now because there is nothing left to disagree with. It is also cheaper: a raycast over every
+polygon every 50ms is gone, replaced by one sphere intersection and a point-in-polygon test.
 
 ### What is actually slow, measured
 

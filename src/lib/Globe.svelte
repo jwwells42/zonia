@@ -70,6 +70,7 @@
 
 	let quiz;
 	let world;
+	/** Name of the region under the pointer, from `regionUnder`. */
 	let hovered = null;
 	/**
 	 * Transient per-polygon click feedback: name -> 'correct' | 'wrong'.
@@ -108,7 +109,7 @@
 		const name = nameOf(polygon);
 		const flashed = flash.get(name);
 		if (flashed) return capMaterials[flashed];
-		if (polygon === hovered) return capMaterials.hover;
+		if (name === hovered) return capMaterials.hover;
 		return capMaterials.base;
 	}
 
@@ -410,40 +411,73 @@
 		return point && world.toGeoCoords(point);
 	}
 
+	/**
+	 * Which region is under a screen point. Null for sky or open water.
+	 *
+	 * The hover highlight and the answer both come through here, and that is the
+	 * point of it. They used to be resolved two different ways: the answer by
+	 * this route, the highlight by globe.gl's onPolygonHover, which raycasts the
+	 * scene. Those two disagree near a border, because the raycaster also hits
+	 * the polygon outlines, which three-globe raises above the caps and three.js
+	 * picks with `params.Line.threshold` of 1. At a globe radius of 100 that is
+	 * several screen pixels of invisible grab zone, and both neighbours draw an
+	 * outline along a shared border. So the pointer lit one country and the click
+	 * answered the other. One function cannot do that.
+	 */
+	function regionUnder(clientX, clientY) {
+		if (!world || !regions.length) return null;
+		const hit = surfaceAt(clientX, clientY);
+		if (!hit) return null;
+		return regionAt(regions, hit.lat, hit.lng, tapToleranceDegrees(hit.lat, hit.lng));
+	}
+
 	/** Resolves a tap position to a region and plays it. */
 	function answerAt(clientX, clientY) {
-		if (won || !world || !regions.length) return;
-		const hit = surfaceAt(clientX, clientY);
-		// Tapped the sky. Not a wrong answer, just not an answer.
-		if (!hit) return;
-
-		const name = regionAt(regions, hit.lat, hit.lng, tapToleranceDegrees(hit.lat, hit.lng));
+		if (won) return;
+		const name = regionUnder(clientX, clientY);
 		if (name) answer(name);
+	}
+
+	/** Hover picking runs no more often than this, as globe.gl's also did. */
+	const HOVER_INTERVAL_MS = 50;
+	let hoverAt = null;
+	let hoverTimer;
+
+	function setHover(name) {
+		if (hovered === name) return;
+		hovered = name;
+		repaint();
 	}
 
 	function onPointerDown(event) {
 		pointersDown++;
 		tapFrom = pointersDown > 1 ? null : { id: event.pointerId, x: event.clientX, y: event.clientY };
-
-		/**
-		 * Hover does not exist on a touch panel, and three-render-objects does not
-		 * know that: it keeps raycasting the last touched position long after the
-		 * finger has gone, leaving a region stuck orange. Turning the hover pass off
-		 * the first time a finger is used fixes that and spares the weakest hardware
-		 * a raycast every 50ms.
-		 */
-		if (world && event.pointerType !== 'mouse' && world.enablePointerInteraction()) {
-			world.enablePointerInteraction(false);
-			hovered = null;
-			repaint();
-		}
+		// Hover means nothing once a finger is involved, and a region left lit
+		// after the finger has gone just looks like a wrong answer.
+		if (event.pointerType !== 'mouse') setHover(null);
 	}
 
 	function onPointerMove(event) {
-		if (!tapFrom || event.pointerId !== tapFrom.id) return;
-		if (Math.hypot(event.clientX - tapFrom.x, event.clientY - tapFrom.y) > TAP_SLOP_PX) {
-			tapFrom = null;
+		if (tapFrom && event.pointerId === tapFrom.id) {
+			if (Math.hypot(event.clientX - tapFrom.x, event.clientY - tapFrom.y) > TAP_SLOP_PX) {
+				tapFrom = null;
+			}
 		}
+
+		if (event.pointerType !== 'mouse') return;
+		hoverAt = { x: event.clientX, y: event.clientY };
+		// Never pick while a button is down. That is a drag, and on a classroom
+		// panel the frames are worth more than the highlight.
+		if (pointersDown || hoverTimer) return;
+		hoverTimer = setTimeout(() => {
+			hoverTimer = null;
+			if (!pointersDown && hoverAt) setHover(regionUnder(hoverAt.x, hoverAt.y));
+		}, HOVER_INTERVAL_MS);
+	}
+
+	function onPointerLeave() {
+		hoverAt = null;
+		setHover(null);
 	}
 
 	function onPointerUp(event) {
@@ -531,13 +565,12 @@
 				// No polygonLabel. Names are drawn on the map by the label passes above
 				// instead of following the pointer, because hover does not exist on a
 				// touch panel and that is where this is used.
-				.onPolygonHover((polygon) => {
-					if (hovered === polygon) return;
-					hovered = polygon;
-					repaint();
-				});
-			// No onPolygonClick either. Taps are resolved against the geometry by
-			// answerAt, for the reasons in pick.js.
+				//
+				// No onPolygonHover or onPolygonClick either, and globe.gl's pointer
+				// system is off entirely. Both the highlight and the answer come from
+				// regionUnder. See there for why they must not be resolved separately.
+				// This also drops a raycast over every polygon every 50ms.
+				.enablePointerInteraction(false);
 
 			// three-render-objects sets this to Math.min(2, devicePixelRatio) at
 			// construction and offers no option for it, so it is overridden after the
@@ -601,6 +634,7 @@
 			cancelled = true;
 			clearTimeout(flashTimer);
 			clearTimeout(labelTimer);
+			clearTimeout(hoverTimer);
 			cleanUpControls?.();
 			resizeObserver?.disconnect();
 			// Without this, switching regions leaks a WebGL context and its
@@ -663,6 +697,7 @@
 		onpointermove={onPointerMove}
 		onpointerup={onPointerUp}
 		onpointercancel={onPointerCancel}
+		onpointerleave={onPointerLeave}
 	></div>
 
 	<!-- Names are plain DOM text, not geometry on the globe. three-globe's label
