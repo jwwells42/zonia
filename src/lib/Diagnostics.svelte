@@ -45,6 +45,39 @@
 	 * gone. A person standing at the panel can see whether there is a globe.
 	 */
 	let buffer = $state('');
+	/**
+	 * Draw calls per frame. On weak hardware frame rate followed this number and
+	 * not the pixel count, so it is the one to read off a panel. Counted by
+	 * wrapping the WebGL draw methods, so it works for either renderer and the
+	 * renderer does not know it is being measured.
+	 */
+	let drawCalls = $state(0);
+
+	const DRAW_METHODS = [
+		'drawArrays',
+		'drawElements',
+		'drawArraysInstanced',
+		'drawElementsInstanced'
+	];
+
+	/** Counts every draw call from here on. Returns a reader and an undo. */
+	function countDraws() {
+		let count = 0;
+		const restore = [];
+		for (const Context of [globalThis.WebGLRenderingContext, globalThis.WebGL2RenderingContext]) {
+			if (!Context) continue;
+			for (const method of DRAW_METHODS) {
+				const original = Context.prototype[method];
+				if (!original) continue;
+				Context.prototype[method] = function (...args) {
+					count++;
+					return original.apply(this, args);
+				};
+				restore.push(() => (Context.prototype[method] = original));
+			}
+		}
+		return { read: () => count, restore: () => restore.forEach((undo) => undo()) };
+	}
 
 	const round = (n, places = 0) => Number(n.toFixed(places));
 
@@ -96,6 +129,7 @@
 		[
 			`Zonia ${label} | ${quiz}`,
 			`fps median ${fps}  low5% ${fpsLow}  worst frame ${worstFrame}ms  slow frames ${slowFrames}/${sampled}`,
+			`draw calls per frame ${drawCalls}`,
 			`interactive ${interactive}ms`,
 			device &&
 				[
@@ -133,6 +167,8 @@
 	onMount(() => {
 		device = describeDevice();
 
+		const draws = countDraws();
+		let drawsAtSample = 0;
 		let frame = 0;
 		let last = performance.now();
 		/** @type {number[]} */
@@ -156,6 +192,8 @@
 				fps = round(1000 / percentile(deltas, 0.5), 1);
 				fpsLow = round(1000 / percentile(deltas, 0.95), 1);
 				sampled = deltas.length;
+				drawCalls = round((draws.read() - drawsAtSample) / 20, 1);
+				drawsAtSample = draws.read();
 			}
 			raf = requestAnimationFrame(tick);
 		};
@@ -173,7 +211,7 @@
 
 		// Polled rather than read once, because the canvas does not exist until the
 		// renderer has built itself.
-		const draws = setInterval(() => {
+		const measureBuffer = setInterval(() => {
 			const canvas = document.querySelector('canvas');
 			if (canvas?.width) {
 				const megapixels = (canvas.width * canvas.height) / 1e6;
@@ -184,7 +222,8 @@
 		return () => {
 			cancelAnimationFrame(raf);
 			clearInterval(poll);
-			clearInterval(draws);
+			clearInterval(measureBuffer);
+			draws.restore();
 		};
 	});
 </script>
@@ -193,6 +232,7 @@
 	<button class="bar" onclick={() => (collapsed = !collapsed)} aria-expanded={!collapsed}>
 		<span class="dot" class:bad={fps > 0 && fps < 30} class:ok={fps >= 50}></span>
 		<strong>{fps || '--'} fps</strong>
+		<span class="draws">{drawCalls} draws</span>
 		<span class="dim">{label}</span>
 		<span class="chev">{collapsed ? '+' : '−'}</span>
 	</button>
@@ -253,7 +293,8 @@
 		flex: 1;
 	}
 
-	.chev {
+	.chev,
+	.draws {
 		opacity: 0.6;
 	}
 

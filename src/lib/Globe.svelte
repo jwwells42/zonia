@@ -1,15 +1,27 @@
 <script>
 	import { onMount, tick } from 'svelte';
 	import GlobeGL from 'globe.gl';
-	// MeshBasic, not Lambert: this is what three-globe builds its own default cap
-	// material from, so the unlit look of the original polygons is preserved.
-	import { MeshBasicMaterial, Raycaster, Sphere, Vector2, Vector3 } from 'three';
-	import { feature } from 'topojson-client';
+	// MeshBasic, not Lambert: this is what three-globe built its own cap material
+	// from, so the unlit look of the original polygons is preserved.
+	import {
+		Color,
+		DoubleSide,
+		LineBasicMaterial,
+		LineSegments,
+		Mesh,
+		MeshBasicMaterial,
+		Raycaster,
+		Sphere,
+		Vector2,
+		Vector3
+	} from 'three';
+	import { feature, mesh } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
 	import { regionIndex, regionAt } from './pick.js';
 	import { capResolution } from './geo.js';
 	import { datasetUrl } from './regions.js';
+	import { borderGeometry, landGeometry, paintRange } from './landMesh.js';
 	import globeSkin from '$lib/images/earth-night.webp';
 	import globeBackground from '$lib/images/night-sky.webp';
 
@@ -36,11 +48,8 @@
 	/**
 	 * Regions lie flat on the globe rather than standing proud of it.
 	 *
-	 * three-globe decides whether to build side-wall geometry purely from whether
-	 * a side colour is set (`hasSide = !!(sideColor || sideMaterial)` gates
-	 * `includeSides` on ConicPolygonGeometry). Measured on these datasets, those
-	 * walls were ~67% of every triangle. 34,507 down to 11,381 for `world`. Triangle
-	 * count drives both load tessellation and per-pointer-move raycasting.
+	 * `landGeometry` builds caps with no side walls. Measured on these datasets,
+	 * those walls were ~67% of every triangle. 34,507 down to 11,381 for `world`.
 	 *
 	 * Small islands look better for it too: Hawaii and the Aleutians used to be
 	 * mostly side wall seen edge-on, which read as smears hanging past the globe's
@@ -50,6 +59,14 @@
 	 * so the two do not z-fight.
 	 */
 	const ALTITUDE = 0.01;
+
+	/**
+	 * How far the borders sit above the caps, as a fraction of the globe radius.
+	 * The same lift three-globe gave its outlines, so they are never hidden in
+	 * the cap they outline.
+	 */
+	const BORDER_LIFT = 1e-4;
+	const BORDER = '#111';
 
 	let globeEl;
 	let containerEl;
@@ -83,15 +100,18 @@
 	/** Bounding-boxed geometry for resolving a tap to a region. Plain, not $state. */
 	let regions = [];
 
-	// One material per visual state, shared by every polygon. three-globe re-runs
-	// its whole polygon digest whenever a colour accessor changes, so handing it
-	// stable material instances keeps that pass from rebuilding colours object by
-	// object on every pointer move.
-	const capMaterials = {
-		base: new MeshBasicMaterial({ color: CAP }),
-		hover: new MeshBasicMaterial({ color: CAP_HOVER }),
-		correct: new MeshBasicMaterial({ color: CAP_CORRECT }),
-		wrong: new MeshBasicMaterial({ color: CAP_WRONG })
+	/**
+	 * The land and borders, as two meshes for the whole quiz. See landMesh.js.
+	 * Plain, not $state: it holds every vertex on the map.
+	 */
+	let land = null;
+
+	/** One colour per visual state. `Color` converts to the linear values three.js draws with. */
+	const capColors = {
+		base: new Color(CAP),
+		hover: new Color(CAP_HOVER),
+		correct: new Color(CAP_CORRECT),
+		wrong: new Color(CAP_WRONG)
 	};
 
 	const nameOf = (polygon) => polygon.properties.name;
@@ -106,16 +126,21 @@
 		return window.innerWidth < 700 ? 60 : 200;
 	}
 
-	function materialFor(polygon) {
-		const name = nameOf(polygon);
+	function colorOf(name) {
 		const flashed = flash.get(name);
-		if (flashed) return capMaterials[flashed];
-		if (name === hovered) return capMaterials.hover;
-		return capMaterials.base;
+		if (flashed) return capColors[flashed];
+		if (name === hovered) return capColors.hover;
+		return capColors.base;
 	}
 
-	/** Re-runs the cap-material accessor without allocating a new closure. */
-	const repaint = () => world?.polygonCapMaterial(materialFor);
+	/**
+	 * Repaints one region to match its state. Only that region's vertices are
+	 * rewritten and uploaded, so a hover costs the size of one country.
+	 */
+	function repaint(name) {
+		const range = name && land?.ranges.get(name);
+		if (range) paintRange(land.geometry, range, colorOf(name));
+	}
 
 	/**
 	 * Whether pointing at a region shows its name.
@@ -197,6 +222,36 @@
 	/** See `capResolution`: small regions get an exact cap, wide ones a subdivided one. */
 	const capResolutionFor = (polygon) => capResolution(polygon.geometry, curvatureFor(pov[2]));
 
+	/**
+	 * The whole map as two meshes: every cap in one, every border in the other.
+	 *
+	 * three-globe's polygon layer made a cap mesh and an outline per region part,
+	 * which on the world quiz is 720 draw calls a frame. On weak hardware frame
+	 * rate followed that number and nothing else. This is 2.
+	 *
+	 * Only the regions' vertices ever change after this, and only their colour.
+	 */
+	function buildLand(polygons, topology) {
+		const radius = world.getGlobeRadius();
+		const { geometry, ranges } = landGeometry(polygons, {
+			radius: radius * (1 + ALTITUDE),
+			resolutionFor: capResolutionFor
+		});
+		const object = topology.objects[Object.keys(topology.objects)[0]];
+		const borders = borderGeometry(mesh(topology, object), {
+			radius: radius * (1 + ALTITUDE + BORDER_LIFT),
+			resolution: curvatureFor(pov[2])
+		});
+		land = {
+			geometry,
+			ranges,
+			caps: new Mesh(geometry, new MeshBasicMaterial({ vertexColors: true, side: DoubleSide })),
+			borders: new LineSegments(borders, new LineBasicMaterial({ color: BORDER }))
+		};
+		for (const name of ranges.keys()) repaint(name);
+		world.scene().add(land.caps, land.borders);
+	}
+
 	/** globe.gl sizes itself to the window once at construction and never again. */
 	function fit() {
 		if (!world || !containerEl) return;
@@ -206,11 +261,12 @@
 
 	function showFeedback(name, kind) {
 		flash.set(name, kind);
-		repaint();
+		repaint(name);
 		clearTimeout(flashTimer);
 		flashTimer = setTimeout(() => {
+			const flashed = [...flash.keys()];
 			flash.clear();
-			repaint();
+			for (const each of flashed) repaint(each);
 		}, 450);
 	}
 
@@ -356,8 +412,10 @@
 
 	function setHover(name) {
 		if (hovered === name) return;
+		const previous = hovered;
 		hovered = name;
-		repaint();
+		repaint(previous);
+		repaint(name);
 	}
 
 	/** Ends a press that has not answered, and takes its ring away. */
@@ -510,24 +568,10 @@
 				// A large alpha-blended sphere around the globe. Pretty, and blending
 				// over that area is not free on a mobile GPU.
 				.showAtmosphere(effects)
-				// Without this every accessor change spawns a Tween per polygon,
-				// which on a hover-driven accessor means allocating on every frame
-				// the pointer moves.
-				.polygonsTransitionDuration(0)
-				.polygonCapCurvatureResolution(capResolutionFor)
-				.polygonAltitude(ALTITUDE)
-				// Falsy on purpose. This is what stops the side geometry being built.
-				.polygonSideColor(() => null)
-				.polygonStrokeColor(() => '#111')
-				.polygonCapMaterial(materialFor)
-				// No polygonLabel. Names are drawn on the map by the label passes above
-				// instead of following the pointer, because hover does not exist on a
-				// touch panel and that is where this is used.
-				//
-				// No onPolygonHover or onPolygonClick either, and globe.gl's pointer
-				// system is off entirely. Both the highlight and the answer come from
-				// regionUnder. See there for why they must not be resolved separately.
-				// This also drops a raycast over every polygon every 50ms.
+				// No polygon layer at all. The land is two meshes of our own, added
+				// below. globe.gl's pointer system is off too: both the highlight and
+				// the answer come from regionUnder. See there for why they must not be
+				// resolved separately.
 				.enablePointerInteraction(false);
 
 			// three-render-objects sets this to Math.min(2, devicePixelRatio) at
@@ -537,7 +581,7 @@
 			world.renderer().setPixelRatio(pixelRatio);
 
 			fit();
-			world.polygonsData(polygons);
+			buildLand(polygons, topology);
 
 			progress = 0.85;
 			await tick();
@@ -570,8 +614,14 @@
 			// Without this, switching regions leaks a WebGL context and its
 			// textures each time. The old code sidestepped it by forcing a full
 			// page reload on every nav.
+			if (land) {
+				land.geometry.dispose();
+				land.caps.material.dispose();
+				land.borders.geometry.dispose();
+				land.borders.material.dispose();
+				land = null;
+			}
 			world?._destructor?.();
-			for (const material of Object.values(capMaterials)) material.dispose();
 			world = null;
 		};
 	});

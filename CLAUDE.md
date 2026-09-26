@@ -134,6 +134,7 @@ src/lib/regions.js         Every quiz, keyed by URL path, + nav structure
 src/lib/quiz.js            Quiz rules, pure, no DOM
 src/lib/pick.js            Which region a tap landed on, pure, no DOM
 src/lib/geo.js             Planar geometry primitives, shared with the tests
+src/lib/landMesh.js        Every cap in one mesh, every border once, no DOM
 src/lib/Globe.svelte       Renderer A, globe.gl / three-globe
 src/lib/MapGlobe.svelte    Renderer B, MapLibre (evaluation)
 src/lib/mapStyle.js        MapLibre style spec and view framing
@@ -247,7 +248,7 @@ nothing. Turning off the atmosphere and antialiasing changed nothing. Cutting th
 it from 20 fps to 60.
 
 So `?dpr` and `?fx` will not rescue that panel, and neither will a smaller globe or a lower
-resolution. **The lever is the 720 draw calls.** See Performance constraints.
+resolution. **The lever is the 720 draw calls.** They are now 4. See Performance constraints.
 
 One caveat kept honest: this was measured on a desktop GPU with the CPU throttled, so it proves the
 workload is not pixel-heavy for a capable GPU. A Mali-G52 has a small fraction of that fill rate and
@@ -338,26 +339,25 @@ Outputs are committed so deploys never run it.
 
 ## Performance constraints
 
-This is a WebGL app that tessellates every polygon at load and redraws hundreds of separate meshes
-every frame. Things that look harmless and are not:
+This is a WebGL app that tessellates every polygon at load and redraws the whole map every frame.
+Things that look harmless and are not:
 
 - **Never put GeoJSON in `$state`.** Svelte 5's deep proxies would wrap thousands of coordinate
   arrays. Only values the template renders are runes; everything `globe.gl` touches is a plain
   variable, and repaints are pushed to three.js by hand.
-- **Keep `polygonsTransitionDuration(0)`.** At its default, every change to a colour or material
-  accessor allocates a `Tween` per polygon. Since hover drives an accessor, that means allocating
-  on every frame the pointer moves.
-- **Hover swaps materials, not colours.** three-globe re-runs its whole polygon digest on any
-  accessor change; handing it stable, pre-created `MeshBasicMaterial` instances keeps that pass
-  from rebuilding colours object by object. Use `MeshBasicMaterial`. It is what three-globe builds
-  its own default from, so Lambert would change the shading.
+- **The land is two meshes, not three-globe's polygon layer.** See the next section. Do not
+  bring back `polygonsData`: it is 720 draw calls on `/world`.
+- **Hover and feedback rewrite one region's colours.** `paintRange` writes that region's slice of
+  the colour attribute and marks only that slice for upload. Use `MeshBasicMaterial`. It is what
+  three-globe built its caps from, so Lambert would change the shading.
 - **`globe.gl` never resizes itself.** It reads `window.innerWidth/innerHeight` once at
   construction. `Globe.svelte` drives `.width()/.height()` from a `ResizeObserver`; without it the
   page overflows and phone rotation permanently breaks the view.
-- **Dispose the globe on unmount.** `world._destructor()` plus material disposal. Skipping this
+- **Dispose the globe on unmount.** `world._destructor()`, plus the land's geometries and
+  materials, which globe.gl does not know about. Skipping this
   leaks a WebGL context per region switch. The original code avoided the issue by forcing a full
   page reload on every navigation. That is why it felt slow.
-- **`polygonCapCurvatureResolution` trades triangles for roundness.** The 5° default is wasted on a
+- **Curvature resolution trades triangles for roundness.** The 5° default is wasted on a
   zoomed-in region where nothing spans enough longitude to bend visibly. See `curvatureFor`.
 - **Small regions get an exact cap, and that is correctness, not tuning.**
   `three-conic-polygon-geometry` has two paths. Given no interior grid points it runs earcut over
@@ -368,8 +368,7 @@ every frame. Things that look harmless and are not:
   of the shipped world geometry, **23 of 177 regions had uncovered land**. `capResolution` in
   `geo.js` sends anything under 15 degrees of arc down the exact path, which takes 23 to 14 and
   costs nothing: 11,161 triangles against 11,381. The limit is where a flat chord would sag
-  through the globe. Wider regions still need the guess, and the answer for them is the cap merge
-  below.
+  through the globe. Wider regions still need the guess.
 - **Total area cannot detect a hole in a cap.** It measured 100% while the holes were there. The
   same guess that drops triangles inside the shape also keeps triangles that spill outside it, and
   the two cancel. `geodata.test.js` samples points inside each polygon and asks whether any
@@ -383,10 +382,8 @@ every frame. Things that look harmless and are not:
   measurement stands; the colour is a judgement nobody has made yet. Removing the stroke is not
   the answer: a thin region's cap is the same colour as its neighbour's, so the outline is the
   only thing showing it is there.
-- **Regions lie flat; `polygonSideColor` must stay falsy.** three-globe gates side-wall geometry on
-  that colour alone (`hasSide` sets `includeSides`), and those walls were ~67% of every triangle.
-  34,507 down to 11,381 for `world`. Setting a side colour silently triples the geometry and doubles
-  hover cost.
+- **Regions lie flat.** `landGeometry` passes `includeSides` false. Side walls were ~67% of every
+  triangle: 34,507 down to 11,381 for `world`.
 - **The starfield is CSS, not `backgroundImageUrl`.** That option wraps the scene in a second,
   enormous textured sphere and repaints every pixel of the viewport with it every frame, to show a
   backdrop that never moves. It is a `background-image` on the container over a transparent canvas
@@ -396,19 +393,28 @@ every frame. Things that look harmless and are not:
   only ever one name on screen, and it is a span placed with a `transform`, so moving it never lays
   the page out again.
 
-**The next real optimisation, and the only one left that matters.** three-globe builds a cap mesh
-and a stroke line per polygon part (`three-globe.mjs`), and `/world` measures **720 draw calls a
-frame**. That number, not pixel count, is what sets the frame rate on weak hardware. See the
-measurements above.
+**The land is one mesh and the borders are one more.** three-globe's polygon layer built a cap
+mesh and an outline per polygon part, and `/world` measured **720 draw calls a frame**. On weak
+hardware that number, not pixel count, set the frame rate.
 
-Merging the caps into one mesh with a vertex colour attribute, and the borders into one
-`LineSegments` built from the shared TopoJSON arcs, takes 720 to about 4. Hover and click feedback
-become a partial write to the colour attribute instead of a material swap, and picking maps a face
-index back to a feature through stored ranges. Borders get drawn once each rather than once per
-neighbour, which the pipeline's shared arcs already make possible.
+`landMesh.js` builds every cap with the same `ConicPolygonGeometry` call three-globe made, then
+merges them into one geometry with a colour per vertex. `ranges` records each region's run of
+vertices. Borders come from topojson-client's `mesh`, so a shared border is drawn once, not once per
+neighbour. Both meshes go straight into globe.gl's scene, which uses the same coordinates as
+three-globe. Picking never touched the meshes, so it did not change.
 
-It means not using three-globe's polygon layer. That is the cost, and it is worth it: nothing else
-on the list moves the number.
+Measured on the GTX 1050 at 6x CPU throttle, 1280x700 at dpr 3, dragging:
+
+| quiz           | draw calls | fps before | fps after | worst frame before | after |
+| -------------- | ---------- | ---------- | --------- | ------------------ | ----- |
+| `/world`       | 720 to 4   | 7          | **30**    | 183 ms             | 50 ms |
+| `/us`          | 414 to 4   | 10         | **60**    | 183 ms             | 33 ms |
+| `/middle-east` | 70 to 4    | 60         | 60        | 67 ms              | 33 ms |
+
+The "before" figures are lower than the 20 fps in the table above. Same GPU and throttle, but a
+different day and harness, so compare within a table, not across them. `/world` still has
+something else costing frames at 6x. Nobody has found it yet. `?stats` now shows draw calls, so a
+panel can confirm the 4.
 
 The client bundle is ~1.8 MB raw / ~530 KB gzipped, almost entirely three.js and three-globe.
 three-globe ships as one pre-bundled module with every layer (hexbin, tiles, voronoi, paths, arcs)
