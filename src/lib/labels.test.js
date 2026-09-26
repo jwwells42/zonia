@@ -139,11 +139,103 @@ describe('placeLabels', () => {
 
 	it('gives a crowded spot to the smaller region', () => {
 		// The point of the whole ordering. Both want the same pixel; the small one
-		// is the name a student needs, so it wins and the large one yields.
+		// is the name a student needs, so it keeps it and the large one moves off.
 		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
 		const stacked = () => ({ x: 500, y: 500 });
 		const placed = placeLabels({ anchors, project: stacked, facing: front, viewport });
-		expect(placed.map((l) => l.name)).toEqual(['Tiny']);
+		const at = Object.fromEntries(placed.map((l) => [l.name, l]));
+		expect(at.Tiny.dx).toBe(0);
+		expect(at.Tiny.dy).toBe(0);
+		expect(Math.hypot(at.Big.dx, at.Big.dy)).toBeGreaterThan(0);
+	});
+
+	it('moves a crowded name aside instead of throwing it away', () => {
+		// This is the whole reason offsets exist. Three names on one pixel used to
+		// mean two of them simply did not appear.
+		const anchors = labelAnchors([
+			square('Big', 0, 0, 20),
+			square('Mid', 0.1, 0, 5),
+			square('Tiny', 0.2, 0, 0.5)
+		]);
+		const stacked = () => ({ x: 500, y: 500 });
+		const placed = placeLabels({ anchors, project: stacked, facing: front, viewport });
+		expect(placed).toHaveLength(3);
+
+		const pinned = placeLabels({
+			anchors,
+			project: stacked,
+			facing: front,
+			viewport,
+			maxOffset: 0
+		});
+		expect(pinned).toHaveLength(1);
+	});
+
+	it('would rather walk further than sit on another region', () => {
+		// A name on a neighbour reads as naming the neighbour. It is allowed, but
+		// only once there is nowhere clear to go.
+		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
+		const stacked = () => ({ x: 500, y: 500 });
+		// Everything within 35px of the anchor is over some other region, which
+		// covers the spot Big would otherwise have taken.
+		const regionAtPoint = (x, y) => (Math.hypot(x - 500, y - 500) < 35 ? 'Somewhere' : null);
+		const clear = placeLabels({ anchors, project: stacked, facing: front, viewport });
+		const fussy = placeLabels({
+			anchors,
+			project: stacked,
+			facing: front,
+			viewport,
+			regionAtPoint
+		});
+		const near = clear.find((l) => l.name === 'Big');
+		const far = fussy.find((l) => l.name === 'Big');
+		expect(Math.hypot(far.dx, far.dy)).toBeGreaterThan(Math.hypot(near.dx, near.dy));
+	});
+
+	it("keeps last pass's spot rather than finding an equally good new one", () => {
+		// Without this a name takes a different place every time the choice is
+		// remade and crawls around its region while the globe turns.
+		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
+		const stacked = () => ({ x: 500, y: 500 });
+		const first = placeLabels({ anchors, project: stacked, facing: front, viewport });
+		const was = new Map(first.map((l) => [l.name, { dx: l.dx, dy: l.dy }]));
+		const again = placeLabels({
+			anchors,
+			project: stacked,
+			facing: front,
+			viewport,
+			sticky: was
+		});
+		for (const label of again) {
+			expect({ dx: label.dx, dy: label.dy }).toEqual(was.get(label.name));
+		}
+	});
+
+	it('wraps a name only when that lets it sit closer to home', () => {
+		// Wrapping everything loses names, because a taller box collides more than
+		// a narrower one avoids. It has to earn its place each time.
+		const wide = { width: 400, height: 20, lines: ['Long Name Here'] };
+		const tall = { width: 120, height: 40, lines: ['Long Name', 'Here'] };
+		const anchors = labelAnchors([square('Long Name Here', 0, 0, 5)], {
+			measure: () => [wide, tall]
+		});
+		// Plenty of room: the plain one line wins, because wrapping is charged for.
+		const roomy = placeLabels({
+			anchors,
+			project: () => ({ x: 500, y: 500 }),
+			facing: front,
+			viewport
+		});
+		expect(roomy[0].lines).toEqual(['Long Name Here']);
+
+		// A viewport too narrow for one line, so the wrapped box is the only fit.
+		const narrow = placeLabels({
+			anchors,
+			project: () => ({ x: 150, y: 300 }),
+			facing: front,
+			viewport: { width: 300, height: 600 }
+		});
+		expect(narrow[0].lines).toEqual(['Long Name', 'Here']);
 	});
 
 	it('keeps both labels once they are far enough apart', () => {
@@ -176,7 +268,10 @@ describe('placeLabels', () => {
 			viewport,
 			priority: 'Big'
 		});
-		expect(placed.map((l) => l.name)).toEqual(['Big']);
+		const at = Object.fromEntries(placed.map((l) => [l.name, l]));
+		expect(at.Big.dx).toBe(0);
+		expect(at.Big.dy).toBe(0);
+		expect(Math.hypot(at.Tiny.dx, at.Tiny.dy)).toBeGreaterThan(0);
 	});
 
 	it('does not resurrect a name the student has already learned', () => {
@@ -206,7 +301,7 @@ describe('placeLabels', () => {
 			project: spread,
 			facing: front,
 			viewport,
-			sticky: new Set(['Edge'])
+			sticky: new Map([['Edge', { dx: 0, dy: 0 }]])
 		});
 		expect(held.map((l) => l.name)).toEqual(['Edge']);
 	});
@@ -222,7 +317,7 @@ describe('placeLabels', () => {
 			project: justOutside,
 			facing: front,
 			viewport,
-			sticky: new Set(['Alpha'])
+			sticky: new Map([['Alpha', { dx: 0, dy: 0 }]])
 		});
 		expect(held.map((l) => l.name)).toEqual(['Alpha']);
 	});
@@ -237,9 +332,11 @@ describe('placeLabels', () => {
 			project: stacked,
 			facing: front,
 			viewport,
-			sticky: new Set(['Big'])
+			sticky: new Map([['Big', { dx: 0, dy: 0 }]])
 		});
-		expect(placed.map((l) => l.name)).toEqual(['Tiny']);
+		const at = Object.fromEntries(placed.map((l) => [l.name, l]));
+		expect(at.Tiny.dx).toBe(0);
+		expect(Math.hypot(at.Big.dx, at.Big.dy)).toBeGreaterThan(0);
 	});
 
 	it('reveals more names as collisions resolve', () => {
@@ -253,13 +350,15 @@ describe('placeLabels', () => {
 			anchors,
 			project: (lat, lng) => ({ x: 500 + lng * 2, y: 500 }),
 			facing: front,
-			viewport
+			viewport,
+			maxOffset: 0
 		});
 		const loose = placeLabels({
 			anchors,
 			project: (lat, lng) => ({ x: 500 + lng * 60, y: 500 }),
 			facing: front,
-			viewport
+			viewport,
+			maxOffset: 0
 		});
 		expect(loose.length).toBeGreaterThan(tight.length);
 		expect(loose).toHaveLength(3);

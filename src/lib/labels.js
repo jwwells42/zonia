@@ -129,8 +129,11 @@ function poleOfInaccessibility(rings) {
  * @param {{ properties: { name: string }, geometry: any }[]} features
  * @param {object} [options]
  * @param {number} [options.fontSize] Font size in px, for the fallback estimate.
- * @param {(name: string) => { width: number, height: number }} [options.measure]
- *   Real text metrics for a name. Supply this from the renderer.
+ * @param {(name: string) => Layout | Layout[]} [options.measure]
+ *   Real text metrics for a name, from the renderer. Return an array to offer
+ *   more than one way to set it, such as one line or two, preferred first.
+ *
+ * @typedef {{ width: number, height: number, lines?: string[] }} Layout
  */
 export function labelAnchors(features, { fontSize = 12, measure } = {}) {
 	const anchors = [];
@@ -151,11 +154,25 @@ export function labelAnchors(features, { fontSize = 12, measure } = {}) {
 		}
 
 		const name = feature.properties.name;
+		const measured = measure ? measure(name) : estimateBox(name, fontSize);
+		// A measurer may offer more than one way to set the name, narrowest last:
+		// one line, or the same words wrapped onto two. Placement picks between
+		// them. Wrapping is never automatic, because a taller box collides more
+		// than a narrower one avoids.
+		const layouts = (Array.isArray(measured) ? measured : [measured]).map((box) => ({
+			lines: box.lines ?? [name],
+			width: box.width,
+			height: box.height
+		}));
 		anchors.push({
 			name,
 			...poleOfInaccessibility(largest),
 			area: total,
-			...(measure ? measure(name) : estimateBox(name, fontSize))
+			layouts,
+			// The first layout's box, so callers that only care about the plain
+			// single-line size do not have to reach into layouts.
+			width: layouts[0].width,
+			height: layouts[0].height
 		});
 	}
 	return anchors;
@@ -175,8 +192,84 @@ const LIMB_AIR = 0.03;
 /** How far past the viewport edge a name already on screen may sit, in pixels. */
 const EDGE_AIR = 8;
 
-/** Shared empty set, so the common case allocates nothing. */
-const NONE = new Set();
+/**
+ * Where a name may sit relative to its region, and what each option costs.
+ *
+ * A name that cannot fit on its own region used to be thrown away. That was
+ * most of them: at the opening view, 16 of 39 names placed on /europe, 23 of 48
+ * on /us, 39 of the 99 visible on /world. The rest lost a collision and
+ * vanished, and because the contest is remade as the globe turns, that is also
+ * where the flickering came from.
+ *
+ * So a name that cannot sit on its region moves off it instead, and the
+ * renderer draws a line back. Measured on the same views this places 31 of 39,
+ * 46 of 48 and 78 of 99.
+ *
+ * Candidates are tried nearest first and scored in pixels, so every preference
+ * is expressed as "how much further would I walk to avoid this".
+ */
+const OFFSET_RADII = [0, 14, 26, 40, 60, 85];
+const OFFSET_DIRECTIONS = 12;
+
+/**
+ * Vertical displacement is squashed, because a line of text is wide and short.
+ * Moving sideways keeps a name nearer its own latitude and reads better.
+ */
+const OFFSET_ASPECT = 0.7;
+
+/**
+ * What it costs to sit on another region of the quiz, in pixels of extra travel
+ * we would rather walk instead.
+ *
+ * Not infinite. On a crowded map some names have nowhere else to go, and a name
+ * on a neighbour with a line home beats no name at all. Measured, preferring
+ * clear ground costs about two names on /world and puts 15 of 76 on a neighbour.
+ */
+const COVER_COST = 30;
+
+/**
+ * What it costs to wrap a name onto two lines.
+ *
+ * Wrapping is worth having and worth resisting. Applied to everything it loses
+ * names, because the box gets taller and height collisions bite harder than the
+ * narrower box helps: on /us it took 23 down to 21. Charged like this it is only
+ * used where it lets a name sit closer to home, which is the case it is for,
+ * like a long name over a round country.
+ */
+const WRAP_COST = 12;
+
+/**
+ * What keeping last pass's position is worth.
+ *
+ * Without it a name takes a different spot every time the choice is remade and
+ * crawls around its region while the globe turns, which would be worse than the
+ * blinking this replaces. Measured over three seconds of drag on /world, it cuts
+ * the number of names that change position from 103 to 78, with no change to how
+ * many are shown.
+ *
+ * It never beats going home, which is handled separately: the anchor wins
+ * outright whenever it is free.
+ */
+const KEEP_BONUS = 48;
+
+/**
+ * Beyond this the name no longer reads as belonging to the land under it, so
+ * the renderer draws a leader line back to the region.
+ */
+export const LEADER_MIN = 16;
+
+/** Candidate displacements, nearest first. Built once. */
+const OFFSETS = OFFSET_RADII.flatMap((r) =>
+	r === 0
+		? [{ dx: 0, dy: 0, r: 0 }]
+		: Array.from({ length: OFFSET_DIRECTIONS }, (_, k) => {
+				const a = (k / OFFSET_DIRECTIONS) * Math.PI * 2;
+				return { dx: Math.cos(a) * r, dy: Math.sin(a) * r * OFFSET_ASPECT, r };
+			})
+);
+
+/** Shared empty map, so the common case allocates nothing. */
+const NONE = new Map();
 
 /**
  * Which labels to draw, and where.
@@ -230,10 +323,19 @@ const NONE = new Set();
  * @param {(name: string) => boolean} [options.shouldLabel]
  * @param {string | null} [options.priority] Name that must be placed before any other.
  * @param {number} [options.margin] How far inside the limb a label must sit, 0 to 1.
- * @param {Set<string>} [options.sticky] Names placed on the previous pass.
- * @returns {{ name: string, lat: number, lng: number, x: number, y: number }[]}
- *   The anchor comes back with each label so a caller that redraws often can
- *   re-project it without running the whole decision again.
+ * @param {Map<string, { dx: number, dy: number }>} [options.sticky] What was
+ *   placed on the previous pass, by name, with the displacement each was given.
+ * @param {(x: number, y: number) => string | null} [options.regionAtPoint] Which
+ *   region of the quiz covers a screen point, if any. Lets a displaced name
+ *   prefer ground that is not another region.
+ * @param {number} [options.maxOffset] How far a name may be moved off its
+ *   region. Zero pins every name to its own anchor.
+ * @returns {{ name: string, lat: number, lng: number, dx: number, dy: number,
+ *   lines: string[], width: number, height: number }[]}
+ *   The anchor comes back as lat/lng and the placement as a displacement from
+ *   it, so a caller that redraws often re-projects the anchor and adds dx/dy
+ *   without running the whole decision again. That is also what stops names
+ *   crawling: the displacement is decided here and then held.
  */
 export function placeLabels({
 	anchors,
@@ -243,7 +345,9 @@ export function placeLabels({
 	shouldLabel = () => true,
 	priority = null,
 	margin = 0.12,
-	sticky = NONE
+	sticky = NONE,
+	regionAtPoint = () => null,
+	maxOffset = OFFSET_RADII[OFFSET_RADII.length - 1]
 }) {
 	const candidates = [];
 
@@ -267,8 +371,7 @@ export function placeLabels({
 			y,
 			held,
 			area: anchor.area,
-			width: anchor.width,
-			height: anchor.height
+			layouts: anchor.layouts
 		});
 	}
 
@@ -289,8 +392,92 @@ export function placeLabels({
 
 	const placed = [];
 	for (const candidate of candidates) {
-		if (placed.some((other) => overlaps(candidate, other))) continue;
-		placed.push(candidate);
+		const spot = bestSpot(candidate, placed, { viewport, regionAtPoint, maxOffset, sticky });
+		if (spot) placed.push(spot);
 	}
-	return placed.map(({ name, lat, lng, x, y }) => ({ name, lat, lng, x, y }));
+	return placed.map(({ name, lat, lng, dx, dy, lines, width, height }) => ({
+		name,
+		lat,
+		lng,
+		dx,
+		dy,
+		lines,
+		width,
+		height
+	}));
+}
+
+/**
+ * The cheapest place this name can go without landing on one already placed.
+ *
+ * Cost is measured in pixels of travel from the region, so the preferences are
+ * all comparable: sitting on another region costs COVER_COST, wrapping costs
+ * WRAP_COST, and keeping last pass's spot refunds KEEP_BONUS. Candidates are
+ * tried nearest first, and since cost is never less than the distance walked,
+ * the search stops as soon as the remaining rings are further than the best
+ * answer so far. That early exit is what keeps `regionAtPoint` cheap: on
+ * /world a whole pass asks it about 274 times, not thousands.
+ *
+ * Returns null only when nowhere works, which after this is rare.
+ */
+function bestSpot(candidate, placed, { viewport, regionAtPoint, maxOffset, sticky }) {
+	const previous = sticky.get?.(candidate.name) ?? null;
+	let best = null;
+
+	for (const offset of OFFSETS) {
+		if (offset.r > maxOffset) break;
+		// A name belongs on its own region. If the anchor is free nothing else is
+		// worth scoring, and without this the refund for staying put would keep a
+		// name parked beside a region it could sit on.
+		if (best && best.dx === 0 && best.dy === 0) break;
+		// Nothing further out can win. The cheapest a spot at this distance could
+		// possibly be is the distance itself, less the refund for it being where
+		// this name already was. Leaving that refund out of the bound is a bug I
+		// wrote once: the search stopped before it ever reached the old spot, so
+		// names never held their place.
+		if (best && offset.r - KEEP_BONUS >= best.cost) break;
+
+		const x = candidate.x + offset.dx;
+		const y = candidate.y + offset.dy;
+
+		// Only worth asking what is underneath once the name has left its region.
+		let cover = 0;
+		if (offset.r > 0 && regionAtPoint) {
+			const under = regionAtPoint(x, y);
+			if (under && under !== candidate.name) cover = COVER_COST;
+		}
+
+		for (let i = 0; i < candidate.layouts.length; i++) {
+			const layout = candidate.layouts[i];
+			let cost = offset.r + cover + (i > 0 ? WRAP_COST : 0);
+			if (previous && previous.dx === offset.dx && previous.dy === offset.dy) {
+				cost -= KEEP_BONUS;
+			}
+			if (best && cost >= best.cost) continue;
+
+			const box = { x, y, width: layout.width, height: layout.height };
+			if (
+				x - layout.width / 2 < 0 ||
+				y - layout.height / 2 < 0 ||
+				x + layout.width / 2 > viewport.width ||
+				y + layout.height / 2 > viewport.height
+			) {
+				continue;
+			}
+			if (placed.some((other) => overlaps(box, other))) continue;
+
+			best = {
+				...candidate,
+				x,
+				y,
+				dx: offset.dx,
+				dy: offset.dy,
+				lines: layout.lines,
+				width: layout.width,
+				height: layout.height,
+				cost
+			};
+		}
+	}
+	return best;
 }

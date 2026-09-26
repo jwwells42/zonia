@@ -8,7 +8,7 @@
 	import { feature } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
-	import { labelAnchors, placeLabels } from './labels.js';
+	import { labelAnchors, placeLabels, LEADER_MIN } from './labels.js';
 	import { regionIndex, regionAt } from './pick.js';
 	import { datasetUrl } from './regions.js';
 	import globeSkin from '$lib/images/earth-night.webp';
@@ -161,11 +161,27 @@
 		// descender, while the span the browser lays out is always 18.8px tall.
 		// Collision then passed pairs that overlap once drawn, which is the exact
 		// failure the comment above warns about.
-		const height = LABEL_FONT_SIZE * LABEL_LINE_HEIGHT + LABEL_PADDING[0] * 2;
-		return (name) => ({
-			width: ctx.measureText(name).width + LABEL_PADDING[1] * 2,
-			height
+		const box = (lines) => ({
+			lines,
+			width: Math.max(...lines.map((l) => ctx.measureText(l).width)) + LABEL_PADDING[1] * 2,
+			height: LABEL_FONT_SIZE * LABEL_LINE_HEIGHT * lines.length + LABEL_PADDING[0] * 2
 		});
+		return (name) => {
+			const one = box([name]);
+			// The most even two-line split, so "Central African Republic" breaks
+			// somewhere sensible rather than after the first word. Offered, never
+			// imposed: placement only takes it when it lets the name sit closer to
+			// its region, because a taller box collides more than a narrow one
+			// avoids. Names with one word have nothing to offer.
+			const words = name.split(' ');
+			if (words.length < 2) return one;
+			let two = null;
+			for (let i = 1; i < words.length; i++) {
+				const candidate = box([words.slice(0, i).join(' '), words.slice(i).join(' ')]);
+				if (!two || candidate.width < two.width) two = candidate;
+			}
+			return two.width < one.width ? [one, two] : one;
+		};
 	}
 
 	/**
@@ -213,6 +229,8 @@
 
 	/** Placed labels, in screen coordinates. The one globe value the template reads. */
 	let regionLabels = $state(NO_LABELS);
+	/** Just the ones far enough from their region to need a line drawn. */
+	let leaders = $derived(regionLabels.filter((label) => label.lead));
 	/**
 	 * The same labels as last chosen, still carrying their anchors. Plain, not
 	 * $state: this is what positionLabels re-projects, and nothing renders it.
@@ -293,9 +311,14 @@
 			// "Find Germany" over a map showing every name but Germany's reads as
 			// Germany not being in the quiz.
 			priority: quiz.state.target,
-			// What was chosen last time, which placeLabels holds a little harder so
-			// the set stops flickering as the globe turns. See labels.js.
-			sticky: new Set(shownLabels.map((label) => label.name))
+			// Where each name went last time. Holds the set steady at the limb, and
+			// stops a displaced name taking a different spot every pass and crawling
+			// around its region. See labels.js.
+			sticky: new Map(shownLabels.map((label) => [label.name, { dx: label.dx, dy: label.dy }])),
+			// So a name pushed off its own region prefers ground that is not another
+			// one. It is a preference, not a rule: on a crowded map some names have
+			// nowhere else, and a name on a neighbour with a line home beats no name.
+			regionAtPoint: regionAtCanvas
 		});
 		positionLabels();
 	}
@@ -321,7 +344,18 @@
 			return;
 		}
 		const project = screenProjector();
-		regionLabels = shownLabels.map((label) => ({ ...label, ...project(label.lat, label.lng) }));
+		regionLabels = shownLabels.map((label) => {
+			const at = project(label.lat, label.lng);
+			return {
+				...label,
+				// Where the region is, which is where a leader line points.
+				ax: at.x,
+				ay: at.y,
+				x: at.x + label.dx,
+				y: at.y + label.dy,
+				lead: Math.hypot(label.dx, label.dy) >= LEADER_MIN
+			};
+		});
 	}
 
 	// Repack whenever names are switched on or off, from either source. Doing it
@@ -442,12 +476,9 @@
 	 */
 	// The origin and direction are placeholders. setFromCamera overwrites both.
 	const raycaster = new Raycaster(new Vector3(), new Vector3());
-	function surfaceAt(clientX, clientY) {
+	function surfaceAt(canvasX, canvasY) {
 		const rect = globeEl.getBoundingClientRect();
-		const pointer = new Vector2(
-			((clientX - rect.left) / rect.width) * 2 - 1,
-			-((clientY - rect.top) / rect.height) * 2 + 1
-		);
+		const pointer = new Vector2((canvasX / rect.width) * 2 - 1, -(canvasY / rect.height) * 2 + 1);
 		raycaster.setFromCamera(pointer, world.camera());
 		const surface = new Sphere(new Vector3(), world.getGlobeRadius() * (1 + ALTITUDE));
 		const point = raycaster.ray.intersectSphere(surface, new Vector3());
@@ -468,10 +499,24 @@
 	 * answered the other. One function cannot do that.
 	 */
 	function regionUnder(clientX, clientY) {
+		if (!world || !globeEl) return null;
+		const rect = globeEl.getBoundingClientRect();
+		return regionAtCanvas(clientX - rect.left, clientY - rect.top, true);
+	}
+
+	/**
+	 * The region at a point in canvas coordinates.
+	 *
+	 * Label placement asks this about candidate spots, so it can prefer ground
+	 * that is not some other country. With `slack` off it answers strictly, which
+	 * is what placement wants: a name may sit right up against a border.
+	 */
+	function regionAtCanvas(x, y, slack = false) {
 		if (!world || !regions.length) return null;
-		const hit = surfaceAt(clientX, clientY);
+		const hit = surfaceAt(x, y);
 		if (!hit) return null;
-		return regionAt(regions, hit.lat, hit.lng, tapToleranceDegrees(hit.lat, hit.lng));
+		const tolerance = slack ? tapToleranceDegrees(hit.lat, hit.lng) : 0;
+		return regionAt(regions, hit.lat, hit.lng, tolerance);
 	}
 
 	/** Resolves a tap position to a region and plays it. */
@@ -753,14 +798,31 @@
 	     interrupted transition, so a name that drops out for a pass or two and
 	     comes back dips in opacity and recovers instead of vanishing. Slowing the
 	     repack removes most of those; this covers the rest. -->
+	<!-- Leader lines, under the names. One SVG for all of them rather than an
+	     element each, and no WebGL: these are two coordinates and a stroke, and
+	     the globe has no draw calls to spare. Each line runs to the region's own
+	     anchor, the pole of inaccessibility, so it points at the middle of the
+	     shape rather than at an edge. -->
+	{#if leaders.length}
+		<svg id="leaders" aria-hidden="true">
+			{#each leaders as region (region.name)}
+				<line x1={region.x} y1={region.y} x2={region.ax} y2={region.ay} />
+				<circle cx={region.ax} cy={region.ay} r="1.6" />
+			{/each}
+		</svg>
+	{/if}
+
 	{#each regionLabels as region (region.name)}
 		<span
 			class="region-label"
+			class:led={region.lead}
 			style:left="{region.x}px"
 			style:top="{region.y}px"
 			transition:fade={{ duration: 400 }}
 		>
-			{region.name}
+			{#each region.lines as line, i (i)}
+				{#if i > 0}<br />{/if}{line}
+			{/each}
 		</span>
 	{/each}
 
@@ -816,6 +878,25 @@
 		background: rgba(20, 38, 57, 0.85);
 	}
 
+	#leaders {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		width: 100%;
+		height: 100%;
+		pointer-events: none;
+		overflow: visible;
+	}
+
+	#leaders line {
+		stroke: rgba(255, 255, 255, 0.55);
+		stroke-width: 1;
+	}
+
+	#leaders circle {
+		fill: rgba(255, 255, 255, 0.75);
+	}
+
 	.region-label {
 		position: absolute;
 		z-index: 1;
@@ -834,6 +915,14 @@
 		background: rgba(0, 0, 0, 0.45);
 		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 		pointer-events: none;
+	}
+
+	/* A name sitting away from its region needs to be readable over whatever it
+	   has landed on, so it gets a solid plate rather than the usual wash. */
+	.region-label.led {
+		background: rgba(6, 10, 24, 0.82);
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		padding: 0 3px;
 	}
 
 	#globe {

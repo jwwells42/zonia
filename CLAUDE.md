@@ -489,11 +489,47 @@ placement rules can be tested without a browser.
   close each call is, and 8px cost 7 of 39 names on `/world`, 4 of 23 on `/us`. The boxes already
   carry the label's own padding, so boxes that touch are not words that touch.
 
-**Known limit, and the fix if it is wanted.** Nothing caps the label count, so collisions are the
-only thing that removes a name. At the opening view of a regional quiz that still bites: `/europe`
-places 19 of 39 at 1280x624, because the small countries are stacked in a small part of the screen.
-Two ways out. Framing, by lowering the `pov` altitude in `regions.js` so the quiz opens closer. Or
-leader lines: place a crowded name in the empty space around the landmass and draw a thin line back
-to its region, the way an atlas names Luxembourg. Leader lines are the better answer, because a
-globe view has a lot of empty space and they would let most of those 39 names show at once. It
-needs an offset search in `placeLabels` and an SVG overlay for the lines.
+### A crowded name moves, it does not vanish
+
+Losing a collision used to mean losing the name. That was most of them, and it was also where the
+flickering came from, since the contest is remade as the globe turns.
+
+So `placeLabels` searches outward from the anchor and the renderer draws a leader line back. At
+the opening views, 1280x624:
+
+| quiz           | visible | named before | named now | with a line |
+| -------------- | ------- | ------------ | --------- | ----------- |
+| `/europe`      | 39      | 16           | **32**    | 21          |
+| `/us`          | 48      | 23           | **43**    | 21          |
+| `/africa`      | 51      | 32           | **51**    | 13          |
+| `/world`       | 99      | 39           | **77**    | 37          |
+| `/middle-east` | 15      | 9            | **15**    | 4           |
+
+Everything is scored in pixels of travel, so the preferences are comparable and tunable in one
+place. Sitting on another region of the quiz costs `COVER_COST`, wrapping onto two lines costs
+`WRAP_COST`, and staying where the name was last pass refunds `KEEP_BONUS`.
+
+- **The anchor wins outright when it is free.** A name belongs on its own region, and without
+  this rule the refund for staying put would park a name permanently beside a region it could sit
+  on.
+- **Covering a neighbour is allowed, not free.** On a crowded map some names have nowhere clear
+  to go, and a name on a neighbour with a line home beats no name at all. Preferring clear ground
+  costs about two names on `/world` and leaves 11 of 77 over another region.
+- **Wrapping is offered, never imposed.** Applied to every name it loses names, because a taller
+  box collides more than a narrower one avoids: on `/us` it took 23 down to 21. Charged for, it
+  is used once or twice per quiz, which is the case it is for, like a long name on a round
+  country.
+- **The displacement is decided at repack and then held.** `placeLabels` returns `dx`/`dy` from
+  the anchor rather than absolute coordinates, so the renderer re-projects the anchor every frame
+  and adds the offset. Names stay glued to the land, and they do not take a different spot every
+  time the choice is remade. Over three seconds of drag on `/world` the refund cuts the number
+  that move from 103 to 78.
+- **Mind the search bound.** The loop stops once the remaining rings are further away than the
+  best answer so far. That bound has to allow for `KEEP_BONUS`, or the search ends before it ever
+  reaches a name's previous spot and nothing ever holds its place. This was wrong once and the
+  only symptom was that tuning the constant changed nothing.
+- **Lines are SVG, not WebGL.** One `<svg>` for all of them. The globe has no draw calls to
+  spare, and a leader line is two coordinates and a stroke.
+
+Leader lines aim at the pole of inaccessibility, the same anchor the name would have used, so
+they point at the middle of the shape rather than at an edge.
