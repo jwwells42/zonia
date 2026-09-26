@@ -4,12 +4,62 @@ import { feature } from 'topojson-client';
 import { REGIONS } from './regions.js';
 import { labelAnchors } from './labels.js';
 import { regionIndex, regionAt } from './pick.js';
+import { polygonParts, pointInRings, ringBounds, capResolution, angularSpan } from './geo.js';
+
+// three-conic-polygon-geometry reads a global THREE if there is one. There is
+// not, under vitest, and it checks `window` before deciding.
+globalThis.window = globalThis.window ?? /** @type {any} */ ({});
+const { default: ConicPolygonGeometry } = await import('three-conic-polygon-geometry');
 
 const rosters = JSON.parse(readFileSync('scripts/rosters.json', 'utf8'));
 
 const load = (dataset) => {
 	const topology = JSON.parse(readFileSync(`static/geo/${dataset}.topo.json`, 'utf8'));
 	return feature(topology, topology.objects[Object.keys(topology.objects)[0]]).features;
+};
+
+const GLOBE_RADIUS = 100;
+/** Must match Globe.svelte. */
+const ALTITUDE = 0.01;
+/** Mirrors curvatureFor in Globe.svelte, which is a rendering choice. */
+const curvatureFor = (altitude) => (altitude >= 1.3 ? 5 : altitude >= 0.9 ? 7 : 9);
+
+/** The cap's triangles, back in latitude and longitude. */
+function capTriangles(rings, resolution) {
+	const geometry = new ConicPolygonGeometry(
+		rings,
+		0,
+		GLOBE_RADIUS * (1 + ALTITUDE),
+		false,
+		true,
+		false,
+		resolution
+	);
+	const position = geometry.getAttribute('position').array;
+	const index = geometry.index?.array ?? null;
+	const count = index ? index.length : position.length / 3;
+	const polar = (i) => {
+		const [x, y, z] = [position[i * 3], position[i * 3 + 1], position[i * 3 + 2]];
+		const r = Math.hypot(x, y, z);
+		return {
+			lat: 90 - (Math.acos(y / r) * 180) / Math.PI,
+			lng: ((((90 - (Math.atan2(z, x) * 180) / Math.PI) % 360) + 540) % 360) - 180
+		};
+	};
+	const out = [];
+	for (let i = 0; i < count; i += 3) {
+		const [a, b, c] = index ? [index[i], index[i + 1], index[i + 2]] : [i, i + 1, i + 2];
+		out.push([polar(a), polar(b), polar(c)]);
+	}
+	return out;
+}
+
+const inTriangle = (px, py, a, b, c) => {
+	const d = (b.lat - c.lat) * (a.lng - c.lng) + (c.lng - b.lng) * (a.lat - c.lat);
+	if (Math.abs(d) < 1e-12) return false;
+	const u = ((b.lat - c.lat) * (px - c.lng) + (c.lng - b.lng) * (py - c.lat)) / d;
+	const v = ((c.lat - a.lat) * (px - c.lng) + (a.lng - c.lng) * (py - c.lat)) / d;
+	return u >= -1e-9 && v >= -1e-9 && u + v <= 1 + 1e-9;
 };
 
 describe('built geodata', () => {
@@ -22,6 +72,8 @@ describe('built geodata', () => {
 	for (const [key, roster] of Object.entries(rosters)) {
 		describe(key, () => {
 			const features = load(key);
+			const pov = Object.values(REGIONS).find((r) => r.dataset === key)?.pov;
+			const subdivided = curvatureFor(pov ? pov[2] : 1.4);
 			const names = features.map((f) => f.properties.name);
 			const expected = [...new Set(Object.values(roster.members))].sort();
 
@@ -54,6 +106,59 @@ describe('built geodata', () => {
 						`${anchor.name} anchor did not resolve to its own region`
 					).toBe(anchor.name);
 				}
+			});
+
+			it('draws a cap that actually covers the land it is exact for', () => {
+				// Holes in the map, found only by a screenshot. The renderer builds a
+				// cap two different ways, and the one it uses for wider regions
+				// discards triangles by testing whether their centroid falls inside
+				// the polygon. On a narrow shape that guess is wrong and leaves land
+				// with nothing drawn on it: 23 of the 177 world regions had gaps, the
+				// visible one being the Caprivi Strip and northern Botswana.
+				//
+				// Total area cannot catch this. It came out at 100% while the holes
+				// were there, because the same guess also keeps triangles that spill
+				// outside, and the two cancel. So this samples points inside the
+				// polygon and asks whether anything is drawn over them.
+				//
+				// Only the regions narrow enough to be drawn exactly are asserted on.
+				// Wider ones have to be subdivided and are still at the mercy of that
+				// guess: 14 of 177 still have gaps. Asserting on those would pin the
+				// bug in place rather than guard against it.
+				const failures = [];
+				for (const f of features) {
+					// Chosen here rather than from geo.js on purpose. The subject has
+					// to be picked independently of the code under test, or narrowing
+					// the rule in geo.js would empty this test instead of failing it.
+					// 15 degrees is the width below which a flat cap cannot sag
+					// through the globe, so every region under it can and must be
+					// drawn exactly.
+					if (angularSpan(f.geometry) > 15) continue;
+					const resolution = capResolution(f.geometry, subdivided);
+					for (const rings of polygonParts(f.geometry)) {
+						if (!(rings[0]?.length > 2)) continue;
+						const { minX, minY, maxX, maxY } = ringBounds(rings[0]);
+						// A shape touching the antimeridian has vertices that come back
+						// as +180 or -180 depending on which way the arctangent rounded,
+						// and comparing those as flat numbers is nonsense. The renderer
+						// has a separate path for them. Fiji is the only one here.
+						if (maxX >= 179.5 || minX <= -179.5) continue;
+						// Coarse on purpose. This runs over every shipped region.
+						const step = Math.max(0.2, Math.max(maxX - minX, maxY - minY) / 40);
+						const triangles = capTriangles(rings, resolution);
+						// Offset by half a step. Many borders run straight along the
+						// bounding box, so sampling from its edge puts points exactly on
+						// the outline, where inside and outside are both defensible.
+						for (let x = minX + step / 2; x <= maxX; x += step) {
+							for (let y = minY + step / 2; y <= maxY; y += step) {
+								if (!pointInRings(x, y, rings)) continue;
+								if (triangles.some(([a, b, c]) => inTriangle(x, y, a, b, c))) continue;
+								failures.push(`${f.properties.name} at ${x.toFixed(2)},${y.toFixed(2)}`);
+							}
+						}
+					}
+				}
+				expect(failures.slice(0, 8)).toEqual([]);
 			});
 
 			it('stays within valid latitude and longitude', () => {

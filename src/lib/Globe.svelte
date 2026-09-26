@@ -10,6 +10,7 @@
 	import { createQuiz } from './quiz.js';
 	import { labelAnchors, placeLabels, LEADER_MIN } from './labels.js';
 	import { regionIndex, regionAt } from './pick.js';
+	import { capResolution } from './geo.js';
 	import { datasetUrl } from './regions.js';
 	import globeSkin from '$lib/images/earth-night.webp';
 	import globeBackground from '$lib/images/night-sky.webp';
@@ -375,6 +376,9 @@
 	 */
 	const curvatureFor = (altitude) => (altitude >= 1.3 ? 5 : altitude >= 0.9 ? 7 : 9);
 
+	/** See `capResolution`: small regions get an exact cap, wide ones a subdivided one. */
+	const capResolutionFor = (polygon) => capResolution(polygon.geometry, curvatureFor(pov[2]));
+
 	/** globe.gl sizes itself to the window once at construction and never again. */
 	function fit() {
 		if (!world || !containerEl) return;
@@ -644,7 +648,7 @@
 				// which on a hover-driven accessor means allocating on every frame
 				// the pointer moves.
 				.polygonsTransitionDuration(0)
-				.polygonCapCurvatureResolution(curvatureFor(pov[2]))
+				.polygonCapCurvatureResolution(capResolutionFor)
 				.polygonAltitude(ALTITUDE)
 				// Falsy on purpose. This is what stops the side geometry being built.
 				.polygonSideColor(() => null)

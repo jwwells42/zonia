@@ -102,3 +102,62 @@ export function signedDistance(px, py, rings) {
 	}
 	return (inside ? 1 : -1) * Math.sqrt(minSq);
 }
+
+/**
+ * Resolution that leaves a cap with no interior grid points, so
+ * three-conic-polygon-geometry triangulates it with earcut alone.
+ */
+export const EXACT_CAP = 1000;
+
+/**
+ * Widest a region may be, in degrees of arc, and still get the exact cap.
+ *
+ * A cap with no subdivision is flat, and a flat chord across an angle a sags
+ * below the sphere by R(1 - cos(a/2)). Regions are drawn one unit above the
+ * globe, so the sag has to stay under that or the land sinks into the planet.
+ * Solving for nine tenths of a unit gives 15.4 degrees, rounded down.
+ */
+const EXACT_CAP_MAX_SPAN = 15;
+
+/** Greatest angular extent of a geometry, in degrees of arc. */
+export function angularSpan(geometry) {
+	let widest = 0;
+	for (const rings of polygonParts(geometry)) {
+		if (!(rings[0]?.length > 2)) continue;
+		const { minX, minY, maxX, maxY } = ringBounds(rings[0]);
+		// Longitude degrees shrink towards the poles, so convert before comparing.
+		const middle = ((minY + maxY) / 2) * (Math.PI / 180);
+		widest = Math.max(widest, (maxX - minX) * Math.cos(middle), maxY - minY);
+	}
+	return widest;
+}
+
+/**
+ * How finely three-globe should subdivide a region's cap.
+ *
+ * **Small regions are triangulated exactly, and that is a correctness fix, not
+ * a tuning knob.** three-conic-polygon-geometry has two paths. Given no
+ * interior grid points it runs earcut over the outline, which is exact. Given
+ * them it runs Delaunay over the outline plus the grid, then discards any
+ * triangle touching the outline whose *centroid* falls outside the polygon.
+ * That last test is a guess, and on a narrow shape it guesses wrong and leaves
+ * land with nothing drawn on it.
+ *
+ * That is what put holes through the Caprivi Strip and northern Botswana.
+ * Sampling inside every polygon of the shipped world geometry and asking
+ * whether any triangle covers the point, 23 of 177 regions had uncovered land.
+ * Tuning the resolution does not help, because the guess converges on nothing:
+ * Namibia missed 133 samples at 9, 7 and 5 degrees, 196 at 3, none at 2, 3 at
+ * 1. Taking the exact path wherever it is safe brings 23 down to 14, and costs
+ * nothing: 11,161 triangles against 11,381.
+ *
+ * What is left is the handful of regions too wide to lie flat, which still need
+ * the guess. The answer for those is to build the cap ourselves, which is the
+ * merge described under Performance constraints in CLAUDE.md.
+ *
+ * `subdivided` is the resolution to use when the region is too wide for the
+ * exact path, in angular degrees.
+ */
+export function capResolution(geometry, subdivided) {
+	return angularSpan(geometry) <= EXACT_CAP_MAX_SPAN ? EXACT_CAP : subdivided;
+}

@@ -360,6 +360,21 @@ every frame. Things that look harmless and are not:
   page reload on every navigation. That is why it felt slow.
 - **`polygonCapCurvatureResolution` trades triangles for roundness.** The 5° default is wasted on a
   zoomed-in region where nothing spans enough longitude to bend visibly. See `curvatureFor`.
+- **Small regions get an exact cap, and that is correctness, not tuning.**
+  `three-conic-polygon-geometry` has two paths. Given no interior grid points it runs earcut over
+  the outline, which is exact. Given them it runs Delaunay over outline plus grid, then discards
+  any triangle touching the outline whose _centroid_ falls outside the polygon. That last test is
+  a guess, and on a narrow shape it guesses wrong and leaves land with nothing drawn on it. It is
+  what put holes through the Caprivi Strip and northern Botswana. Sampling inside every polygon
+  of the shipped world geometry, **23 of 177 regions had uncovered land**. `capResolution` in
+  `geo.js` sends anything under 15 degrees of arc down the exact path, which takes 23 to 14 and
+  costs nothing: 11,161 triangles against 11,381. The limit is where a flat chord would sag
+  through the globe. Wider regions still need the guess, and the answer for them is the cap merge
+  below.
+- **Total area cannot detect a hole in a cap.** It measured 100% while the holes were there. The
+  same guess that drops triangles inside the shape also keeps triangles that spill outside it, and
+  the two cancel. `geodata.test.js` samples points inside each polygon and asks whether any
+  triangle covers them, which is the test that finds it.
 - **The border colour must not be near-background.** WebGL draws a line one device pixel wide and
   will not go thinner, so a region narrower than about two screen pixels is covered completely by
   its own outline and its neighbours'. The border was `#111`, so those regions rendered as a dark
