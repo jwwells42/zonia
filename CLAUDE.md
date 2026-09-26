@@ -68,6 +68,29 @@ prompts in `Globe.svelte` and `MapGlobe.svelte`.
 | `npm run lint` / `npm run format`   | Prettier check + ESLint / rewrite                                    |
 | `npm run geodata`                   | Rebuild `static/geo/` from upstream sources. **Not** part of `build` |
 
+## Starting work
+
+**Read the git before planning anything.** `git fetch`, then read `git log origin/main`. Not just
+before merging. Before planning.
+
+The branch in the working tree tells you nothing about what has shipped. The maintainer works
+from more than one device and ships to `main` from all of them, so `main` can be weeks ahead of
+whatever happens to be checked out. The status snapshot at the top of a session is a snapshot,
+and it goes stale.
+
+**If the working branch is behind `main`, stop and reconcile.** Say what has moved and agree what
+to do about it. Do not start a second branch to work around it, and do not carry on regardless.
+One line of work, reconciled first.
+
+**When the maintainer asks about the state of the repo, that is the job.** Read the branches, the
+log on `origin/main`, the stashes, and anything unpushed. Answer from what git says, not from the
+opening snapshot.
+
+This is not a formality. In September 2026 a session planned and wrote three commits on a branch
+from August. `main` had moved twice in between and already carried fixes for the same faults. Two
+of the three commits were thrown away, and one of them was built on a diagnosis that the shipped
+code had already disproved.
+
 ## Committing and shipping
 
 **Commit and push finished work. Do not leave it sitting in the working tree.**
