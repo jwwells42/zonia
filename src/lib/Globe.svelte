@@ -200,8 +200,8 @@
 	 * ending fires a repack directly, so the settled view is never stale.
 	 *
 	 * Widening the gap between labels was tried instead and is a bad trade. It
-	 * buys fewer blinks by drawing fewer names: on /us it cost 6 of 40 at the
-	 * opening view, and those are the names a student needs.
+	 * buys fewer blinks by drawing fewer names: 8px cost 7 of 39 on /world and
+	 * 4 of 23 on /us, and those are the names a student needs.
 	 */
 	const REPACK_INTERVAL_MS = 300;
 

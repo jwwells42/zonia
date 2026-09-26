@@ -194,50 +194,6 @@ describe('placeLabels', () => {
 		expect(placed).toHaveLength(0);
 	});
 
-	/** Lays two anchors `apart` pixels apart on one row, whatever their names. */
-	const inARow = (anchors, apart) => {
-		const [first] = anchors;
-		return (lat, lng) => ({ x: 500 + (lng === first.lng ? 0 : apart), y: 500 });
-	};
-
-	/** The centre distance at which two label boxes exactly touch. */
-	const touching = (anchors) => anchors.reduce((sum, a) => sum + a.width, 0) / 2;
-
-	it('makes a new label earn clear space, not just a free pixel', () => {
-		// Three pixels clear of each other. That used to pass, and on screen it
-		// reads as one run of text rather than two names.
-		const anchors = labelAnchors([square('Alpha', 0, 0, 5), square('Beta', 1, 0, 5)]);
-		const placed = placeLabels({
-			anchors,
-			project: inARow(anchors, touching(anchors) + 3),
-			facing: front,
-			viewport
-		});
-		expect(placed).toHaveLength(1);
-	});
-
-	it('holds a name already on screen through a marginal overlap', () => {
-		// The flicker fix, and the whole point of `sticky`. Identical geometry
-		// twice: rejected as a newcomer, kept when it was placed last pass. Without
-		// it a pixel of drift during a drag dropped a name and the next pass put it
-		// straight back, about eleven times a second.
-		const anchors = labelAnchors([square('Big', 0, 0, 20), square('Tiny', 0.1, 0, 0.5)]);
-		// Clear of a real overlap, but inside the space a new name has to find.
-		const grazing = inARow(anchors, touching(anchors) + 2);
-
-		const fresh = placeLabels({ anchors, project: grazing, facing: front, viewport });
-		expect(fresh.map((l) => l.name)).toEqual(['Tiny']);
-
-		const held = placeLabels({
-			anchors,
-			project: grazing,
-			facing: front,
-			viewport,
-			sticky: new Set(['Big'])
-		});
-		expect(held.map((l) => l.name).sort()).toEqual(['Big', 'Tiny']);
-	});
-
 	it('lets a name already on screen sit further round the limb', () => {
 		// These squares sit on the equator, so facing is just cos(lng). 84 degrees
 		// is past the 0.12 cutoff and inside the sticky one.

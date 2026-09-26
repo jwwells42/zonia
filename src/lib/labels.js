@@ -161,33 +161,19 @@ export function labelAnchors(features, { fontSize = 12, measure } = {}) {
 	return anchors;
 }
 
-/**
- * Do two label boxes clash, given `air` pixels of required separation?
- *
- * `air` is how the flicker is kept out. A name already on screen is tested with
- * none, so it only yields when the boxes genuinely overlap. A name arriving is
- * tested with the full gap, so it has to earn clear space. That dead band is
- * what stops a pixel of drift swapping two names back and forth.
- */
-const clashes = (a, b, air) =>
-	Math.abs(a.x - b.x) * 2 < a.width + b.width + air &&
-	Math.abs(a.y - b.y) * 2 < a.height + b.height + air;
-
-/**
- * Default separation in pixels, and so also the width of the dead band.
- *
- * Doubles as the gutter between names. Without it two boxes could pass the test
- * sharing an edge, which reads on screen as one run of text.
- */
-const AIR = 8;
+const overlaps = (a, b) =>
+	Math.abs(a.x - b.x) * 2 < a.width + b.width && Math.abs(a.y - b.y) * 2 < a.height + b.height;
 
 /**
  * How much further round the limb a name already on screen may sit.
  *
- * Same idea as `AIR`, for the other hard edge. `facing` is a cosine, so this is
- * in those units rather than pixels.
+ * The limb is a hard cutoff and a name drifting across it pops. `facing` is a
+ * cosine, so this is in those units.
  */
 const LIMB_AIR = 0.03;
+
+/** How far past the viewport edge a name already on screen may sit, in pixels. */
+const EDGE_AIR = 8;
 
 /** Shared empty set, so the common case allocates nothing. */
 const NONE = new Set();
@@ -220,14 +206,16 @@ const NONE = new Set();
  * Nothing caps the count. Overlap is the only thing that removes a label, so
  * zooming in resolves collisions and more names appear on their own.
  *
- * **Every one of those thresholds is sticky.** The choice is remade every 90ms
- * while the globe moves, and each cutoff is hard, so a name sitting on one
- * flickered: a pixel of drift flipped it and the next pass flipped it back.
- * Worse with several names close together, where whether the third fits depends
- * on exactly where the first two landed, so one pixel cascades. So a name
- * already on screen is judged more leniently than one arriving. `sticky` is what
- * was placed last time, and it buys a label a little overlap, a little more of
- * the limb, and a few pixels past the viewport edge before it is given up.
+ * **The limb and the edge are sticky, the collision test is not.** Those two are
+ * hard cutoffs with nothing either side of them, so a name drifting across one
+ * pops. `sticky` is what was placed last time, and it buys those names a little
+ * more of the limb and a few pixels past the viewport edge.
+ *
+ * Collision was given the same treatment and it was a mistake, now undone. It
+ * did not measurably reduce flicker, because the flicker comes from how often
+ * the choice is remade rather than from how close the call is, and it cost real
+ * names: a gap of 8px on top of the boxes lost 7 of 39 on /world. The boxes
+ * already carry the label's padding, so touching boxes are not touching words.
  *
  * Ordering is deliberately left alone. Letting held names sort ahead of new ones
  * would let a large name that happens to be on screen beat a small newcomer,
@@ -243,7 +231,6 @@ const NONE = new Set();
  * @param {string | null} [options.priority] Name that must be placed before any other.
  * @param {number} [options.margin] How far inside the limb a label must sit, 0 to 1.
  * @param {Set<string>} [options.sticky] Names placed on the previous pass.
- * @param {number} [options.air] Pixels of separation a new label must find.
  * @returns {{ name: string, lat: number, lng: number, x: number, y: number }[]}
  *   The anchor comes back with each label so a caller that redraws often can
  *   re-project it without running the whole decision again.
@@ -256,8 +243,7 @@ export function placeLabels({
 	shouldLabel = () => true,
 	priority = null,
 	margin = 0.12,
-	sticky = NONE,
-	air = AIR
+	sticky = NONE
 }) {
 	const candidates = [];
 
@@ -270,7 +256,7 @@ export function placeLabels({
 		const { x, y } = project(anchor.lat, anchor.lng);
 		if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
 		// Off-screen labels cannot be seen but would still block a label that can.
-		const slop = held ? air : 0;
+		const slop = held ? EDGE_AIR : 0;
 		if (x < -slop || y < -slop || x > viewport.width + slop || y > viewport.height + slop) continue;
 
 		candidates.push({
@@ -303,8 +289,7 @@ export function placeLabels({
 
 	const placed = [];
 	for (const candidate of candidates) {
-		const needs = candidate.held ? 0 : air;
-		if (placed.some((other) => clashes(candidate, other, needs))) continue;
+		if (placed.some((other) => overlaps(candidate, other))) continue;
 		placed.push(candidate);
 	}
 	return placed.map(({ name, lat, lng, x, y }) => ({ name, lat, lng, x, y }));

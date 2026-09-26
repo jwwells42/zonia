@@ -478,15 +478,16 @@ placement rules can be tested without a browser.
   with no descender while the span the browser lays out is always 18.8px tall, so collision passed
   pairs that overlap once drawn. That is the failure the bullet above warns about, in the code
   written to prevent it.
-- **Every threshold is sticky.** `placeLabels` takes `sticky`, the names chosen on the previous
-  pass, and judges those more leniently: some overlap allowed, a little more of the limb, a few
-  pixels past the viewport edge. Without it names blinked in and out. The choice is remade every
-  90ms while the globe moves, each cutoff is hard, and with several names close together whether
-  the third fits depends on where the first two landed, so one pixel of drift cascades. Ordering
-  is deliberately left alone. Sorting held names ahead of new ones would let a large name that
-  happens to be on screen beat a small newcomer, which inverts the rule above it.
-- **A new name needs clear air, not a free pixel.** The same constant is the gutter. Boxes sharing
-  an edge passed the old test and read on screen as one run of text.
+- **The limb and the viewport edge are sticky, the collision test is not.** Those two are hard
+  cutoffs with nothing either side of them, so a name drifting across one pops. `placeLabels`
+  takes `sticky`, the names chosen last pass, and gives those a little more of the limb and a few
+  pixels past the edge. Ordering is deliberately left alone: sorting held names ahead of new ones
+  would let a large name that happens to be on screen beat a small newcomer, inverting the rule
+  above.
+- **Do not add a gutter between label boxes.** It was tried and reverted. It did not measurably
+  reduce flicker, because flicker comes from how often the choice is remade rather than from how
+  close each call is, and 8px cost 7 of 39 names on `/world`, 4 of 23 on `/us`. The boxes already
+  carry the label's own padding, so boxes that touch are not words that touch.
 
 **Known limit, and the fix if it is wanted.** Nothing caps the label count, so collisions are the
 only thing that removes a name. At the opening view of a regional quiz that still bites: `/europe`
