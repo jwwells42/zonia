@@ -261,6 +261,19 @@ it did: neither renderer keeps its drawing buffer, so reading the canvas afterwa
 transparent pixels whether or not the globe is on screen. An attempt at automating this reported
 BLANK over a working globe and was removed. Look at the screen.
 
+### The maintainer does the testing
+
+Every test that needs a screen is run by a person. Do not ask for access to the maintainer's
+browser and do not drive it. Two reasons. Testing by the model has not been accurate here, and it
+reports success it has not seen. Handing an agent a logged-in browser is also a security problem
+on its own.
+
+So do not claim a change works in the app. Say what was checked and how. `npm test`, `npm run
+check`, `npm run lint` and `npm run build` are yours to run and to report honestly.
+
+Then finish the job: ship it, and write down what to click and what should happen. A short list of
+steps is worth more than a claim.
+
 ## Adding or changing a quiz
 
 Add an entry to `REGIONS` in `src/lib/regions.js`, and to `NAV` if it should appear in the header.
@@ -413,6 +426,21 @@ placement rules can be tested without a browser.
   canvas using the same font as the CSS. Guessing width from a character count is guessing twice:
   too narrow and labels overlap after passing the collision test, too wide and names get dropped
   that would have fitted.
+- **Measure the box, not the glyphs.** Width comes from `measureText`, but height is the line box:
+  font size times line height, plus padding. An earlier pass used `actualBoundingBoxAscent` and
+  `actualBoundingBoxDescent`, which looks more precise and is wrong. It gives about 9px for a name
+  with no descender while the span the browser lays out is always 18.8px tall, so collision passed
+  pairs that overlap once drawn. That is the failure the bullet above warns about, in the code
+  written to prevent it.
+- **Every threshold is sticky.** `placeLabels` takes `sticky`, the names chosen on the previous
+  pass, and judges those more leniently: some overlap allowed, a little more of the limb, a few
+  pixels past the viewport edge. Without it names blinked in and out. The choice is remade every
+  90ms while the globe moves, each cutoff is hard, and with several names close together whether
+  the third fits depends on where the first two landed, so one pixel of drift cascades. Ordering
+  is deliberately left alone. Sorting held names ahead of new ones would let a large name that
+  happens to be on screen beat a small newcomer, which inverts the rule above it.
+- **A new name needs clear air, not a free pixel.** The same constant is the gutter. Boxes sharing
+  an edge passed the old test and read on screen as one run of text.
 
 **Known limit, and the fix if it is wanted.** Nothing caps the label count, so collisions are the
 only thing that removes a name. At the opening view of a regional quiz that still bites: `/europe`
