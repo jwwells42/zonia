@@ -261,6 +261,19 @@ it did: neither renderer keeps its drawing buffer, so reading the canvas afterwa
 transparent pixels whether or not the globe is on screen. An attempt at automating this reported
 BLANK over a working globe and was removed. Look at the screen.
 
+### The maintainer does the testing
+
+Every test that needs a screen is run by a person. Do not ask for access to the maintainer's
+browser and do not drive it. Two reasons. Testing by the model has not been accurate here, and it
+reports success it has not seen. Handing an agent a logged-in browser is also a security problem
+on its own.
+
+So do not claim a change works in the app. Say what was checked and how. `npm test`, `npm run
+check`, `npm run lint` and `npm run build` are yours to run and to report honestly.
+
+Then finish the job: ship it, and write down what to click and what should happen. A short list of
+steps is worth more than a claim.
+
 ## Adding or changing a quiz
 
 Add an entry to `REGIONS` in `src/lib/regions.js`, and to `NAV` if it should appear in the header.
