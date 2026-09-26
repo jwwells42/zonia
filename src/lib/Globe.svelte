@@ -1,6 +1,5 @@
 <script>
 	import { onMount, tick } from 'svelte';
-	import { fade } from 'svelte/transition';
 	import GlobeGL from 'globe.gl';
 	// MeshBasic, not Lambert: this is what three-globe builds its own default cap
 	// material from, so the unlit look of the original polygons is preserved.
@@ -8,7 +7,6 @@
 	import { feature } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
-	import { labelAnchors, layoutLabels, visibleLabels } from './labels.js';
 	import { regionIndex, regionAt } from './pick.js';
 	import { capResolution } from './geo.js';
 	import { datasetUrl } from './regions.js';
@@ -82,6 +80,8 @@
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	let flash = new Map();
 	let flashTimer;
+	/** Bounding-boxed geometry for resolving a tap to a region. Plain, not $state. */
+	let regions = [];
 
 	// One material per visual state, shared by every polygon. three-globe re-runs
 	// its whole polygon digest whenever a colour accessor changes, so handing it
@@ -117,100 +117,8 @@
 	/** Re-runs the cap-material accessor without allocating a new closure. */
 	const repaint = () => world?.polygonCapMaterial(materialFor);
 
-	// All four must match the .region-label rule below, because collision is
-	// tested against the box they describe.
-	const LABEL_FONT_SIZE = 12;
-	const LABEL_FONT = `${LABEL_FONT_SIZE}px Poppins, sans-serif`;
-	const LABEL_LINE_HEIGHT = 1.4;
-	/** Vertical then horizontal, as in the CSS shorthand. Per side. */
-	const LABEL_PADDING = [1, 4];
-
 	/**
-	 * Real text metrics for a name, so collision uses the box that will actually
-	 * be drawn.
-	 *
-	 * Guessing a width from a character count is guessing twice over: too narrow
-	 * and labels overlap on screen after passing the collision test, too wide and
-	 * names are dropped that would have fitted. A 2D context measures the same
-	 * font the browser is about to lay out, and it runs once per region at load.
-	 */
-	function textMeasurer() {
-		const ctx = document.createElement('canvas').getContext('2d');
-		if (!ctx) return undefined;
-		ctx.font = LABEL_FONT;
-		// Height is the line box, not the glyphs. Measuring ascent and descent
-		// looks more precise and is wrong: it gives about 9px for a name with no
-		// descender, while the span the browser lays out is always 18.8px tall.
-		// Collision then passed pairs that overlap once drawn, which is the exact
-		// failure the comment above warns about.
-		const box = (lines) => ({
-			lines,
-			width: Math.max(...lines.map((l) => ctx.measureText(l).width)) + LABEL_PADDING[1] * 2,
-			height: LABEL_FONT_SIZE * LABEL_LINE_HEIGHT * lines.length + LABEL_PADDING[0] * 2
-		});
-		return (name) => {
-			const one = box([name]);
-			// The most even two-line split, so "Central African Republic" breaks
-			// somewhere sensible rather than after the first word. Offered, never
-			// imposed: placement only takes it when it lets the name sit closer to
-			// its region, because a taller box collides more than a narrow one
-			// avoids. Names with one word have nothing to offer.
-			const words = name.split(' ');
-			if (words.length < 2) return one;
-			let two = null;
-			for (let i = 1; i < words.length; i++) {
-				const candidate = box([words.slice(0, i).join(' '), words.slice(i).join(' ')]);
-				if (!two || candidate.width < two.width) two = candidate;
-			}
-			return two.width < one.width ? [one, two] : one;
-		};
-	}
-
-	/**
-	 * How often the arrangement is worked out again while the globe is moving.
-	 *
-	 * Rarely, because it almost never needs to be. `layoutLabels` decides where
-	 * every name goes in degrees on the globe, not in pixels on the screen, so
-	 * turning the world does not change the answer. Only the scale does, which
-	 * means only zooming.
-	 *
-	 * This ran every 90ms for a while, against the screen, and the labels crawled
-	 * and blinked the whole time a drag was in progress. That was not a tuning
-	 * problem. It was re-deriving a stable answer from unstable inputs.
-	 */
-	const RELAYOUT_INTERVAL_MS = 400;
-
-	/**
-	 * How much the scale has to change before the arrangement is worth redoing.
-	 *
-	 * Text is measured in pixels and the layout works in degrees, so the two are
-	 * tied together by the camera altitude. A small drift does not matter and
-	 * redoing it would move names for no reason.
-	 */
-	const RELAYOUT_SCALE_STEP = 1.15;
-
-	/**
-	 * Stable reference for "no labels", so turning them off repeatedly assigns the
-	 * same array and Svelte skips the update instead of re-rendering nothing.
-	 */
-	const NO_LABELS = Object.freeze([]);
-
-	/** Labels to draw, in screen coordinates. The one globe value the template reads. */
-	let regionLabels = $state(NO_LABELS);
-	/** Just the ones far enough from their region to need a line drawn. */
-	let leaders = $derived(regionLabels.filter((label) => label.lead));
-	/**
-	 * Where every name in the quiz goes, in degrees on the globe. Plain, not
-	 * $state: nothing renders it, and it is rebuilt whole when it changes.
-	 */
-	let layout = [];
-	/** The scale the layout was built for, so we know when it is stale. */
-	let layoutScale = 0;
-	/** Names drawn last pass, for the limb and viewport hysteresis. */
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	const drawnLast = new Set();
-	/**
-	 * Whether names are showing.
+	 * Whether pointing at a region shows its name.
 	 *
 	 * Writable derived, so the URL sets the opening position and the button
 	 * overrides it from there. Navigating to a link that specifies `?labels`
@@ -218,136 +126,63 @@
 	 * expects.
 	 */
 	let labelsOn = $derived(labels);
-	/** Plain, not $state: thousands of coordinates went into these. */
-	let anchors = [];
-	let labelTimer;
-	/** Bounding-boxed geometry for resolving a tap to a region. Plain, same reason. */
-	let regions = [];
 
 	/**
-	 * Projects a point on the regions' surface to the screen, as the camera is now.
+	 * The one name on screen, if any: `{ name, x, y, touch }` in canvas pixels.
 	 *
-	 * OrbitControls fires `change` after moving the camera but before the frame
-	 * renders, and only the render refreshes the camera's world matrix. Projecting
-	 * straight away used last frame's rotation, so names trailed the land by a
-	 * frame all through a drag. Refreshing it here costs one matrix inverse.
-	 *
-	 * The altitude is the regions', so a name sits on the drawn land rather than
-	 * on the sphere just below it.
+	 * Names are shown on demand, one at a time, for the region being pointed at.
+	 * Standing names for every region were tried and taken out. They cluttered the
+	 * world view, and moving eighty of them on every frame of a drag cost frames
+	 * the panel did not have.
 	 */
-	function screenProjector() {
-		world.camera().updateMatrixWorld();
-		return (lat, lng) => world.getScreenCoords(lat, lng, ALTITUDE);
-	}
+	let peek = $state(null);
+
+	/** Where the hold ring is drawn while a finger is held down, or null. */
+	let hold = $state(null);
+
+	/** Shown under the score, because holding to answer is not something anyone guesses. */
+	const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+	let hint = $derived(
+		coarsePointer
+			? labelsOn
+				? 'Tap to see a name. Hold to answer.'
+				: 'Hold to answer.'
+			: 'Click to answer.'
+	);
 
 	/**
-	 * How squarely a point faces the camera: 1 in the middle of the view, 0 on
-	 * the visible edge of the globe. Built from three-globe's own coordinates so
-	 * there is only one idea of where a latitude and longitude are in 3D. See
-	 * placeLabels.
-	 *
-	 * This is the angle between the surface and the line of sight to the camera,
-	 * not to a camera infinitely far away. The difference is large. A camera at a
-	 * finite distance sees less than half the sphere, so the edge is not 90° from
-	 * the middle of the view. At the world quiz's opening distance it is about 65°,
-	 * and on the Northeast quiz under 50°. Assuming 90° drew names for land
-	 * already out of sight, stacked on the rim over empty space.
+	 * Where the name sits relative to the pointer, in CSS pixels. Clear of the
+	 * hold ring above a finger, and clear of the arrow beside a cursor.
 	 */
-	function cameraFacing() {
-		const eye = world.camera().position;
-		return (lat, lng) => {
-			const p = world.getCoords(lat, lng, ALTITUDE);
-			const sight = { x: eye.x - p.x, y: eye.y - p.y, z: eye.z - p.z };
-			const dot = p.x * sight.x + p.y * sight.y + p.z * sight.z;
-			return dot / (Math.hypot(p.x, p.y, p.z) * Math.hypot(sight.x, sight.y, sight.z));
-		};
-	}
+	const PEEK_ABOVE_FINGER_PX = 52;
+	const PEEK_BESIDE_CURSOR_PX = 16;
 
 	/**
-	 * Degrees of arc per screen pixel at the middle of the view.
+	 * Lights a region and, while it is still being learned, names it.
 	 *
-	 * The layout works in degrees and text is measured in pixels, so this is what
-	 * ties them together. Measured rather than derived, because it depends on the
-	 * camera altitude and on the projection, and getting it from the projection
-	 * itself cannot be wrong.
+	 * The highlight always shows, so a player can see what they are about to
+	 * answer. The name follows the same rule the quiz uses: gone once the region
+	 * has been found once, so the second find is from memory.
 	 */
-	function degreesPerPixel() {
-		const { lat, lng } = world.toGeoCoords(world.camera().position);
-		const project = screenProjector();
-		const here = project(lat, lng);
-		const step = project(lat + (lat > 0 ? -1 : 1), lng);
-		const pixels = Math.hypot(step.x - here.x, step.y - here.y);
-		return pixels > 0 ? 1 / pixels : 0;
-	}
-
-	/**
-	 * Works out where every name in the quiz goes. Rare, and never on rotation.
-	 *
-	 * See `layoutLabels`. The whole arrangement is decided in degrees on the
-	 * globe, so turning the world cannot change it and the names cannot drift.
-	 */
-	function relayout() {
-		if (!world || !containerEl || !quiz || !anchors.length) return;
-		const scale = degreesPerPixel();
-		if (!scale) return;
-		layout = layoutLabels({
-			anchors,
-			degreesPerPixel: scale,
-			// So a name pushed off its own region prefers ground that is not another
-			// one. A preference, not a rule: on a crowded map some names have
-			// nowhere else, and a name on a neighbour with a line home beats none.
-			regionAtLatLng: (lat, lng) => regionAt(regions, lat, lng, 0)
-		});
-		layoutScale = scale;
-		drawLabels();
-	}
-
-	/** Redoes the layout only if the camera has zoomed far enough to matter. */
-	function relayoutIfScaleMoved() {
-		if (!world || !layout.length) return relayout();
-		const scale = degreesPerPixel();
-		if (!scale || !layoutScale) return;
-		const ratio = scale > layoutScale ? scale / layoutScale : layoutScale / scale;
-		if (ratio >= RELAYOUT_SCALE_STEP) relayout();
-	}
-
-	/**
-	 * Projects the layout and culls what is off screen. Runs on every camera
-	 * change, which during a drag means every frame.
-	 *
-	 * Cheap, and it has to be: it is what keeps names glued to the land. It
-	 * cannot move a name relative to its region, because it makes no decisions.
-	 */
-	function drawLabels() {
-		if (!world || !containerEl || !quiz) return;
-		if (!labelsOn || !layout.length) {
-			regionLabels = NO_LABELS;
-			drawnLast.clear();
+	function showPeek(name, clientX, clientY, touch) {
+		setHover(name);
+		if (!name || !labelsOn || !quiz?.state.scaffolded(name)) {
+			peek = null;
 			return;
 		}
-		const { width, height } = containerEl.getBoundingClientRect();
-		const next = visibleLabels({
-			layout,
-			project: screenProjector(),
-			facing: cameraFacing(),
-			viewport: { width, height },
-			shouldLabel: (name) => quiz.state.scaffolded(name),
-			// "Find Germany" over a map naming every neighbour but Germany reads as
-			// Germany not being in the quiz.
-			priority: quiz.state.target,
-			sticky: drawnLast
-		});
-		drawnLast.clear();
-		for (const label of next) drawnLast.add(label.name);
-		regionLabels = next;
+		const rect = globeEl.getBoundingClientRect();
+		peek = { name, x: clientX - rect.left, y: clientY - rect.top, touch };
 	}
 
-	// Repack whenever names are switched on or off, from either source. Doing it
-	// here rather than in the click handler means the globe is never rebuilt.
-	$effect(() => {
-		labelsOn;
-		drawLabels();
-	});
+	function clearPeek() {
+		setHover(null);
+		peek = null;
+	}
+
+	function toggleNames() {
+		labelsOn = !labelsOn;
+		if (!labelsOn) peek = null;
+	}
 
 	/**
 	 * Curvature resolution is the angular step three-conic-polygon-geometry
@@ -367,7 +202,6 @@
 		if (!world || !containerEl) return;
 		const { width, height } = containerEl.getBoundingClientRect();
 		if (width && height) world.width(width).height(height);
-		relayout();
 	}
 
 	function showFeedback(name, kind) {
@@ -387,10 +221,9 @@
 		score = quiz.state.score;
 		learned = quiz.state.masteredCount;
 		showFeedback(name, result.correct ? 'correct' : 'wrong');
-		// A correct click retires a region's name. Nothing is rearranged for it:
-		// any name that lost this one's space simply gets drawn again. Relaying
-		// out would shift every other label to reclaim one gap.
-		drawLabels();
+		// A correct answer retires the region's name, so the one on screen may
+		// now be wrong. The next hover or tap asks again.
+		peek = null;
 
 		if (result.won) {
 			won = true;
@@ -430,8 +263,23 @@
 	 */
 	const MAX_TAP_TOLERANCE_DEG = 4;
 
-	/** The pointer currently down, if a tap is still possible. */
-	let tapFrom = null;
+	/**
+	 * How long a finger must stay down to answer, in milliseconds.
+	 *
+	 * On touch a tap only shows a name, and holding answers. That gives a finger
+	 * what hover gives a mouse: a way to look before committing. It is long on
+	 * purpose. The players are young, they are standing at a wall panel, and a
+	 * name wants reading before the answer goes in. The ring under the finger
+	 * shows it filling, so nobody lets go wondering what is happening.
+	 */
+	const HOLD_MS = 1000;
+
+	/**
+	 * The pointer currently down, while it can still be a tap or a hold:
+	 * `{ id, x, y, touch, name }`. Null once it has moved far enough to be a drag.
+	 */
+	let press = null;
+	let holdTimer;
 	/** Fingers on the glass. A second one means a pinch, never a tap. */
 	let pointersDown = 0;
 
@@ -487,24 +335,11 @@
 	 * answered the other. One function cannot do that.
 	 */
 	function regionUnder(clientX, clientY) {
-		if (!world || !globeEl) return null;
+		if (!world || !globeEl || !regions.length) return null;
 		const rect = globeEl.getBoundingClientRect();
-		return regionAtCanvas(clientX - rect.left, clientY - rect.top, true);
-	}
-
-	/**
-	 * The region at a point in canvas coordinates.
-	 *
-	 * Label placement asks this about candidate spots, so it can prefer ground
-	 * that is not some other country. With `slack` off it answers strictly, which
-	 * is what placement wants: a name may sit right up against a border.
-	 */
-	function regionAtCanvas(x, y, slack = false) {
-		if (!world || !regions.length) return null;
-		const hit = surfaceAt(x, y);
+		const hit = surfaceAt(clientX - rect.left, clientY - rect.top);
 		if (!hit) return null;
-		const tolerance = slack ? tapToleranceDegrees(hit.lat, hit.lng) : 0;
-		return regionAt(regions, hit.lat, hit.lng, tolerance);
+		return regionAt(regions, hit.lat, hit.lng, tapToleranceDegrees(hit.lat, hit.lng));
 	}
 
 	/** Resolves a tap position to a region and plays it. */
@@ -525,54 +360,102 @@
 		repaint();
 	}
 
+	/** Ends a press that has not answered, and takes its ring away. */
+	function cancelPress() {
+		clearTimeout(holdTimer);
+		holdTimer = null;
+		press = null;
+		hold = null;
+	}
+
 	function onPointerDown(event) {
 		pointersDown++;
-		tapFrom = pointersDown > 1 ? null : { id: event.pointerId, x: event.clientX, y: event.clientY };
-		// Hover means nothing once a finger is involved, and a region left lit
-		// after the finger has gone just looks like a wrong answer.
-		if (event.pointerType !== 'mouse') setHover(null);
+		if (pointersDown > 1) {
+			// A second finger is a pinch. Nothing that finger does is an answer.
+			cancelPress();
+			clearPeek();
+			return;
+		}
+		const touch = event.pointerType !== 'mouse';
+		press = { id: event.pointerId, x: event.clientX, y: event.clientY, touch, name: null };
+		if (!touch) return;
+
+		// The finger lands and the region under it lights and is named at once, so
+		// the player sees what they are about to answer before they commit to it.
+		const name = regionUnder(event.clientX, event.clientY);
+		press.name = name;
+		showPeek(name, event.clientX, event.clientY, true);
+		if (!name || won) return;
+
+		const rect = globeEl.getBoundingClientRect();
+		hold = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+		holdTimer = setTimeout(() => {
+			// The region lit when the finger landed, not whatever is under it now.
+			// Anything that moved it far enough to matter already cancelled this.
+			const chosen = press.name;
+			cancelPress();
+			clearPeek();
+			answer(chosen);
+		}, HOLD_MS);
 	}
 
 	function onPointerMove(event) {
-		if (tapFrom && event.pointerId === tapFrom.id) {
-			if (Math.hypot(event.clientX - tapFrom.x, event.clientY - tapFrom.y) > TAP_SLOP_PX) {
-				tapFrom = null;
+		if (press && event.pointerId === press.id) {
+			if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > TAP_SLOP_PX) {
+				// A drag. A name pinned to where the finger was would be left behind
+				// over whatever the globe turns under it.
+				if (press.touch) clearPeek();
+				cancelPress();
 			}
 		}
 
 		if (event.pointerType !== 'mouse') return;
 		hoverAt = { x: event.clientX, y: event.clientY };
+		// The name follows the cursor every move. Only working out which region is
+		// under it is throttled, and that is where the cost is.
+		if (peek) {
+			const rect = globeEl.getBoundingClientRect();
+			peek = { ...peek, x: hoverAt.x - rect.left, y: hoverAt.y - rect.top };
+		}
 		// Never pick while a button is down. That is a drag, and on a classroom
 		// panel the frames are worth more than the highlight.
 		if (pointersDown || hoverTimer) return;
 		hoverTimer = setTimeout(() => {
 			hoverTimer = null;
-			if (!pointersDown && hoverAt) setHover(regionUnder(hoverAt.x, hoverAt.y));
+			if (!pointersDown && hoverAt) {
+				showPeek(regionUnder(hoverAt.x, hoverAt.y), hoverAt.x, hoverAt.y, false);
+			}
 		}, HOVER_INTERVAL_MS);
 	}
 
-	function onPointerLeave() {
+	function onPointerLeave(event) {
+		// A finger fires this every time it lifts, which would take away the name a
+		// tap has just shown. Only a mouse leaving means the pointer has gone.
+		if (event.pointerType !== 'mouse') return;
 		hoverAt = null;
-		setHover(null);
+		clearPeek();
 	}
 
 	function onPointerUp(event) {
 		pointersDown = Math.max(0, pointersDown - 1);
-		const from = tapFrom;
-		tapFrom = null;
+		const from = press;
 		if (!from || event.pointerId !== from.id) return;
+		cancelPress();
+		// A finger lifted before the hold finished was a tap. Its name stays up
+		// until the next touch, so it can be read without holding a finger on it.
+		if (from.touch) return;
 		if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > TAP_SLOP_PX) return;
 		answerAt(event.clientX, event.clientY);
 	}
 
-	function onPointerCancel() {
+	function onPointerCancel(event) {
 		pointersDown = Math.max(0, pointersDown - 1);
-		tapFrom = null;
+		if (press?.touch && event.pointerId === press.id) clearPeek();
+		cancelPress();
 	}
 
 	onMount(() => {
 		let resizeObserver;
-		let cleanUpControls;
 		let cancelled = false;
 
 		(async () => {
@@ -587,8 +470,7 @@
 			const polygons = collection.features;
 			quiz = createQuiz(polygons.map(nameOf));
 			total = quiz.state.total;
-			// One pass over the geometry, here rather than per frame.
-			anchors = labelAnchors(polygons, { measure: textMeasurer() });
+			// One pass over the geometry, here rather than per tap.
 			regions = regionIndex(polygons);
 
 			progress = 0.35;
@@ -672,35 +554,6 @@
 			progress = 1;
 			ready = true;
 
-			/**
-			 * Names track the camera on every change, and are re-chosen on a timer.
-			 *
-			 * OrbitControls fires `change` continuously through a drag and through
-			 * the damped glide that follows it, so this is effectively a per-frame
-			 * hook. Moving the names there is what keeps them stuck to their
-			 * countries. Deciding which names fit is the costly part and stays
-			 * throttled.
-			 */
-			const controls = world.controls();
-			const onChange = () => {
-				drawLabels();
-				// Only zooming can invalidate the arrangement, and checking costs two
-				// projections, so it goes on a timer rather than every frame.
-				if (labelTimer) return;
-				labelTimer = setTimeout(() => {
-					labelTimer = null;
-					relayoutIfScaleMoved();
-				}, RELAYOUT_INTERVAL_MS);
-			};
-			controls.addEventListener('change', onChange);
-			controls.addEventListener('end', relayoutIfScaleMoved);
-			cleanUpControls = () => {
-				controls.removeEventListener('change', onChange);
-				controls.removeEventListener('end', relayoutIfScaleMoved);
-			};
-
-			relayout();
-
 			resizeObserver = new ResizeObserver(() => fit());
 			resizeObserver.observe(containerEl);
 		})().catch((err) => {
@@ -711,9 +564,8 @@
 		return () => {
 			cancelled = true;
 			clearTimeout(flashTimer);
-			clearTimeout(labelTimer);
 			clearTimeout(hoverTimer);
-			cleanUpControls?.();
+			clearTimeout(holdTimer);
 			resizeObserver?.disconnect();
 			// Without this, switching regions leaks a WebGL context and its
 			// textures each time. The old code sidestepped it by forcing a full
@@ -729,8 +581,6 @@
 	<link rel="preload" as="image" href={globeSkin} />
 	<link rel="preload" as="image" href={globeBackground} />
 </svelte:head>
-
-<svelte:window onresize={relayout} />
 
 {#if confetti}
 	<div id="confetti-container" aria-hidden="true">
@@ -754,7 +604,8 @@
 				<span class="muted">· {learned}/{total} learned</span>
 			{/if}
 		</p>
-		<button id="labels-toggle" onclick={() => (labelsOn = !labelsOn)} aria-pressed={labelsOn}>
+		<p id="hint">{hint}</p>
+		<button id="labels-toggle" onclick={toggleNames} aria-pressed={labelsOn}>
 			{labelsOn ? 'Hide names' : 'Show names'}
 		</button>
 	</div>
@@ -762,6 +613,9 @@
 	<!-- Taps are handled here rather than through globe.gl's own click, which
 	     reports whatever its throttled hover raycaster last saw. On a touch panel
 	     that is stale or nothing. See pick.js.
+
+	     The context menu is blocked because a held finger is how a touch player
+	     answers, and Chromium opens a menu on a long press.
 
 	     No role, because there is no keyboard way to play and claiming one would
 	     tell a screen reader this is operable when it is not. globe.gl's own
@@ -776,45 +630,39 @@
 		onpointerup={onPointerUp}
 		onpointercancel={onPointerCancel}
 		onpointerleave={onPointerLeave}
+		oncontextmenu={(event) => event.preventDefault()}
 	></div>
 
-	<!-- Names are plain DOM text, not geometry on the globe. three-globe's label
-	     layer builds a TextGeometry per label from a typeface font, which on the
-	     world quiz would be 177 more meshes and 177 more draw calls on hardware
-	     already short of both. Text nodes also stay crisp and can be read aloud
-	     by a screen reader, which a canvas never can.
-
-	     The fade is deliberately longer than one repack. Svelte reverses an
-	     interrupted transition, so a name that drops out for a pass or two and
-	     comes back dips in opacity and recovers instead of vanishing. Slowing the
-	     repack removes most of those; this covers the rest. -->
-	<!-- Leader lines, under the names. One SVG for all of them rather than an
-	     element each, and no WebGL: these are two coordinates and a stroke, and
-	     the globe has no draw calls to spare. Each line runs to the region's own
-	     anchor, the pole of inaccessibility, so it points at the middle of the
-	     shape rather than at an edge. -->
-	{#if leaders.length}
-		<svg id="leaders" aria-hidden="true">
-			{#each leaders as region (region.name)}
-				<line x1={region.x} y1={region.y} x2={region.ax} y2={region.ay} />
-				<circle cx={region.ax} cy={region.ay} r="1.6" />
-			{/each}
+	<!-- The ring fills for as long as the finger has to stay down to answer. It
+	     is a CSS animation, so nothing runs in script while it fills. -->
+	{#if hold}
+		<svg
+			class="hold-ring"
+			style:transform="translate({hold.x}px, {hold.y}px) translate(-50%, -50%)"
+			style:--hold-ms="{HOLD_MS}ms"
+			viewBox="0 0 100 100"
+			aria-hidden="true"
+		>
+			<circle class="track" cx="50" cy="50" r="44" />
+			<circle class="fill" cx="50" cy="50" r="44" pathLength="100" />
 		</svg>
 	{/if}
 
-	{#each regionLabels as region (region.name)}
+	<!-- One name, for the region being pointed at. Plain DOM text rather than a
+	     globe layer, so it stays crisp and a screen reader can read it. Beside the
+	     cursor for a mouse. Above the finger for touch, where the finger would
+	     otherwise cover it. -->
+	{#if peek}
 		<span
-			class="region-label"
-			class:led={region.lead}
-			style:left="{region.x}px"
-			style:top="{region.y}px"
-			transition:fade={{ duration: 400 }}
+			class="peek"
+			style:transform={peek.touch
+				? `translate(${peek.x}px, ${peek.y}px) translate(-50%, calc(-100% - ${PEEK_ABOVE_FINGER_PX}px))`
+				: `translate(${peek.x + PEEK_BESIDE_CURSOR_PX}px, ${peek.y + PEEK_BESIDE_CURSOR_PX}px)`}
+			aria-live="polite"
 		>
-			{#each region.lines as line, i (i)}
-				{#if i > 0}<br />{/if}{line}
-			{/each}
+			{peek.name}
 		</span>
-	{/each}
+	{/if}
 
 	{#if !ready}
 		<div id="loading">
@@ -868,51 +716,58 @@
 		background: rgba(20, 38, 57, 0.85);
 	}
 
-	#leaders {
+	/* Both of these are placed by a transform from the top left corner, so moving
+	   them never lays the page out again. */
+	.peek,
+	.hold-ring {
 		position: absolute;
-		inset: 0;
+		top: 0;
+		left: 0;
 		z-index: 1;
-		width: 100%;
-		height: 100%;
 		pointer-events: none;
-		overflow: visible;
 	}
 
-	#leaders line {
-		stroke: rgba(255, 255, 255, 0.55);
-		stroke-width: 1;
-	}
-
-	#leaders circle {
-		fill: rgba(255, 255, 255, 0.75);
-	}
-
-	.region-label {
-		position: absolute;
-		z-index: 1;
-		/* Centred on the region rather than hanging off it, because there is no
-		   pointer to avoid. Nothing here is interactive; taps go to the globe. */
-		transform: translate(-50%, -50%);
-		padding: 1px 4px;
-		border-radius: 3px;
-		/* Kept in step with LABEL_FONT and LABEL_PADDING, which collision uses. */
+	.peek {
+		padding: 2px 8px;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 4px;
+		/* Big enough to read across a classroom from a wall panel. */
 		font:
-			12px Poppins,
+			1.1rem Poppins,
 			sans-serif;
-		line-height: 1.4;
 		white-space: nowrap;
 		color: #fff;
-		background: rgba(0, 0, 0, 0.45);
-		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-		pointer-events: none;
+		background: rgba(6, 10, 24, 0.85);
 	}
 
-	/* A name sitting away from its region needs to be readable over whatever it
-	   has landed on, so it gets a solid plate rather than the usual wash. */
-	.region-label.led {
-		background: rgba(6, 10, 24, 0.82);
-		border: 1px solid rgba(255, 255, 255, 0.35);
-		padding: 0 3px;
+	.hold-ring {
+		width: 88px;
+		height: 88px;
+	}
+
+	.hold-ring circle {
+		fill: none;
+		stroke-width: 6;
+	}
+
+	.hold-ring .track {
+		stroke: rgba(255, 255, 255, 0.25);
+	}
+
+	.hold-ring .fill {
+		stroke: #f58622;
+		stroke-dasharray: 100;
+		stroke-dashoffset: 100;
+		/* Start at twelve o'clock and fill clockwise. */
+		transform: rotate(-90deg);
+		transform-origin: center;
+		animation: hold-fill var(--hold-ms) linear forwards;
+	}
+
+	@keyframes hold-fill {
+		to {
+			stroke-dashoffset: 0;
+		}
 	}
 
 	#globe {
@@ -921,6 +776,10 @@
 		/* Claim every gesture for the globe, so dragging it can't scroll the page
 		   or trigger pull-to-refresh. */
 		touch-action: none;
+		/* A held finger answers. Without these it selects text or opens a callout. */
+		user-select: none;
+		-webkit-user-select: none;
+		-webkit-touch-callout: none;
 	}
 
 	#hud {
@@ -947,6 +806,13 @@
 		margin: 0.25rem 0 0;
 		font-family: Poppins-500, sans-serif;
 		font-size: clamp(0.9rem, 2.2vw, 1.5rem);
+	}
+
+	#hint {
+		margin: 0.25rem 0 0;
+		font-family: Poppins, sans-serif;
+		font-size: clamp(0.8rem, 1.6vw, 1rem);
+		opacity: 0.85;
 	}
 
 	.muted {

@@ -132,9 +132,8 @@ scripts/build-geodata.js   Geometry pipeline (build-time only)
 scripts/rosters.json       Which regions each quiz contains. The contract
 src/lib/regions.js         Every quiz, keyed by URL path, + nav structure
 src/lib/quiz.js            Quiz rules, pure, no DOM
-src/lib/labels.js          Where region names go, pure, no DOM
 src/lib/pick.js            Which region a tap landed on, pure, no DOM
-src/lib/geo.js             Planar geometry primitives shared by those two
+src/lib/geo.js             Planar geometry primitives, shared with the tests
 src/lib/Globe.svelte       Renderer A, globe.gl / three-globe
 src/lib/MapGlobe.svelte    Renderer B, MapLibre (evaluation)
 src/lib/mapStyle.js        MapLibre style spec and view framing
@@ -283,7 +282,7 @@ renderer.
 | `?stats`      | On-screen readout. Frame rate, worst frame, time to playable, real GPU, Chromium version, drawing buffer, and the methods MapLibre needs. Has a copy button |
 | `?dpr=1.5`    | Overrides render resolution. Both renderers otherwise cap at 2                                                                                              |
 | `?fx=off`     | Drops the atmosphere glow and antialiasing. Both are appearance, both cost fill rate                                                                        |
-| `?labels=off` | Starts with no region names. The in-quiz button overrides it either way                                                                                     |
+| `?labels=off` | Starts with names off, so a tap or hover lights a region without naming it. The button overrides it                                                         |
 
 Send someone `/world?stats` and `/world?r=maplibre&stats` to get numbers off their hardware instead
 of an impression.
@@ -392,16 +391,10 @@ every frame. Things that look harmless and are not:
   enormous textured sphere and repaints every pixel of the viewport with it every frame, to show a
   backdrop that never moves. It is a `background-image` on the container over a transparent canvas
   in both renderers. `globeImageUrl` is the Earth and is a different thing entirely.
-- **Region names are DOM, not a globe layer.** three-globe's `labelsData` builds a `TextGeometry`
-  per label from a typeface font, which on `/world` is 177 more meshes on hardware already short of
-  draw calls. `labels.js` places them and `Globe.svelte` renders spans. See below.
-- **Choosing names is throttled. Moving them is not.** These are two jobs and they run at two
-  rates. Choosing means projecting every anchor in the quiz, culling the far side, and packing the
-  survivors against collisions; at 60Hz that would cost more than the labels are worth, so
-  `repackLabels` runs on a timer. Moving the twenty or thirty names already chosen is one
-  projection each, and it runs on every `change`, which during a drag means every frame.
-  `positionLabels` does that. Throttling both is what made names swim across the map on a panel:
-  at 20 fps a 90ms throttle leaves them two frames behind the land.
+- **The region name is DOM, not a globe layer.** three-globe's `labelsData` builds a
+  `TextGeometry` per label from a typeface font, which costs a mesh and a draw call each. There is
+  only ever one name on screen, and it is a span placed with a `transform`, so moving it never lays
+  the page out again.
 
 **The next real optimisation, and the only one left that matters.** three-globe builds a cap mesh
 and a stroke line per polygon part (`three-globe.mjs`), and `/world` measures **720 draw calls a
@@ -441,113 +434,44 @@ Two thresholds, and they are deliberately different numbers.
 - `MASTERY` is 2. Correct clicks needed before a region is done and counts towards the win.
 - `SCAFFOLD` is 1. Correct clicks after which the region stops showing its name.
 
-So a student meets a region with its name on the map and finds it by reading. That name then goes,
+So a student meets a region with its name one tap or hover away and finds it by reading. That name then goes,
 and the second, unaided click is the one that tests whether they remember where it was. The support
-is there for the trial that builds the memory and gone for the trial that checks it. Names thin out
-across a session as regions are learned, which frees space for the ones still showing.
+is there for the trial that builds the memory and gone for the trial that checks it.
 
-`SCAFFOLD` must stay below `MASTERY` or the progression does nothing: the label would only vanish
+`SCAFFOLD` must stay below `MASTERY` or the progression does nothing: the name would only vanish
 at the moment the region was already finished. An earlier pass moved label hiding to `MASTERY`,
 treating a half-learned region losing its name as a bug. It is the entire point. `quiz.test.js`
 guards the relationship.
 
-The region currently being asked for always gets its name placed, ahead of every other, whenever it
-is still scaffolded. Otherwise "Find Germany" can appear over a map naming all of Germany's
-neighbours and not Germany, and a student fairly concludes it is not in the quiz.
+### Names on demand
 
-Names are drawn on the map, not on hover. Hover does not exist on a touchscreen, so a hover tooltip
-meant the naming aid was missing on classroom panels, which is where this is used. `?labels=off`
-and the in-quiz button switch them off for a class past needing them.
+|            | Mouse | Touch or pen                |
+| ---------- | ----- | --------------------------- |
+| See a name | Hover | Tap, or the start of a hold |
+| Answer     | Click | Hold for `HOLD_MS`, 1000 ms |
 
-### Where a name goes
+A name shows for the region being pointed at, one at a time. It shows only while the region is
+scaffolded. The highlight shows either way, so a player always sees what they are about to answer.
+`?labels=off` and the in-quiz button turn the names off.
 
-`src/lib/labels.js`, pure and DOM-free like `quiz.js`, so both renderers could drive it and the
-placement rules can be tested without a browser.
+This replaced standing names on every region, and the reasons are worth keeping:
 
-- **The anchor is the pole of inaccessibility**, the point inside the shape furthest from any edge,
-  found by quadtree subdivision. A centroid is not good enough. Averaging vertices put 26 of 467
-  anchors outside their own region: Norway in Sweden, Croatia in Bosnia, Florida in the Gulf. It
-  failed on exactly the outlines a student finds hardest. `geodata.test.js` asserts all 467 land
-  inside, against the real shipped geometry.
-- **Multi-part regions are named on their largest piece**, so a country with distant islands gets
-  its name on the mainland rather than out at sea.
-- **Only what the camera can see.** A projection happily returns screen coordinates for a point
-  behind the planet, so those are culled. The renderer supplies the test, built from its own
-  lat/lng-to-3D function, so there is one convention and not two. It measures the angle to the
-  camera itself. A camera at a finite distance sees less than a hemisphere: about 65° either side at
-  `/world`, under 50° on `/us/northeast`. An earlier version had its axes swapped relative to
-  three-globe and assumed 90°. Names blinked out at the centre of the screen and far-side names
-  were drawn over near-side land.
-- **Collisions resolve smallest region first.** This ordering is the whole design and it is the
-  opposite of the obvious one. Labelling whatever is big enough names Russia and skips Luxembourg,
-  which is backwards: small regions are the names a student needs. Letting them claim their spot
-  first means a crowded map keeps the hard names and drops the obvious ones.
-- **Text is measured, not estimated.** The renderer passes a `measure` function built from a 2D
-  canvas using the same font as the CSS. Guessing width from a character count is guessing twice:
-  too narrow and labels overlap after passing the collision test, too wide and names get dropped
-  that would have fitted.
-- **Measure the box, not the glyphs.** Width comes from `measureText`, but height is the line box:
-  font size times line height, plus padding. An earlier pass used `actualBoundingBoxAscent` and
-  `actualBoundingBoxDescent`, which looks more precise and is wrong. It gives about 9px for a name
-  with no descender while the span the browser lays out is always 18.8px tall, so collision passed
-  pairs that overlap once drawn. That is the failure the bullet above warns about, in the code
-  written to prevent it.
-- **The limb and the viewport edge are sticky, the collision test is not.** Those two are hard
-  cutoffs with nothing either side of them, so a name drifting across one pops. `placeLabels`
-  takes `sticky`, the names chosen last pass, and gives those a little more of the limb and a few
-  pixels past the edge. Ordering is deliberately left alone: sorting held names ahead of new ones
-  would let a large name that happens to be on screen beat a small newcomer, inverting the rule
-  above.
-- **Do not add a gutter between label boxes.** It was tried and reverted. It did not measurably
-  reduce flicker, because flicker comes from how often the choice is remade rather than from how
-  close each call is, and 8px cost 7 of 39 names on `/world`, 4 of 23 on `/us`. The boxes already
-  carry the label's own padding, so boxes that touch are not words that touch.
-
-### A name is welded to the globe, not laid out on the screen
-
-**The arrangement is decided in degrees of latitude and longitude, once, and the renderer only
-projects it.** That is the whole design and it is the opposite of the obvious one.
-
-The obvious way is to work out what fits on the screen. That is what this did, and it was wrong:
-the screen changes every time the globe turns, while the thing being decided does not, because
-countries do not move relative to one another. Solving it per frame re-derived a stable answer
-from unstable inputs, and the names crawled and blinked as the answer wobbled. No amount of
-hysteresis fixes that. The frame of reference is the bug.
-
-`layoutLabels` picks a latitude and longitude for every name in the quiz. `visibleLabels`
-projects and culls and makes no decisions at all. A name rides with the land because it is part
-of the land.
-
-Measured at the opening views, 1280x624, then turning the globe right round in 8 degree steps:
-
-| quiz           | visible | named before | named now | with a line | drift | blinks |
-| -------------- | ------- | ------------ | --------- | ----------- | ----- | ------ |
-| `/europe`      | 39      | 16           | **38**    | 22          | 0     | 0      |
-| `/us`          | 48      | 23           | **48**    | 21          | 0     | 0      |
-| `/africa`      | 51      | 32           | **51**    | 7           | 0     | 0      |
-| `/world`       | 94      | 39           | **88**    | 25          | 0     | 0      |
-| `/middle-east` | 15      | 9            | **15**    | 4           | 0     | 0      |
+- **Hover alone left touch with nothing.** That is why standing names were tried. Tap to see and
+  hold to answer gives a finger the same look-then-commit that hover gives a mouse.
+- **Standing names cost frames and cluttered the map.** On `/world` about 88 names and 25 leader
+  lines were repositioned on every frame of a drag, on a panel already at 20 fps. They took many
+  rounds to stop drifting and blinking. The last version is in git at `dacf6b3` if they are ever
+  wanted back.
 
 Rules that hold this together:
 
-- **Only the scale can invalidate a layout.** Text is measured in pixels and the layout works in
-  degrees, so the two are tied by the camera altitude. Zooming asks for a new arrangement.
-  Turning the globe never does, and `relayout` is not on the rotation path at all.
-- **The anchor wins outright when it is free.** A name belongs on its own region.
-- **Everything is priced in offset steps**, so the preferences are comparable and tunable in one
-  place: `COVER_COST` to sit on another region, `WRAP_COST` to go to two lines.
-- **Wrapping is offered, never imposed.** Applied to every name it loses names, because a taller
-  box collides more than a narrower one avoids: on `/us` it took 23 down to 21.
-- **A blocked name records who blocked it.** Names retire as regions are learned, and that space
-  should be reusable without relaying out and shifting everything else, so `visibleLabels` draws
-  a blocked name whenever its blocker is not on the map.
-- **Answering redraws, it never relays out.** Reclaiming one gap is not worth moving every other
-  name.
-- **Leader lines are SVG, not WebGL**, one element for all of them, aimed at the pole of
-  inaccessibility so they point at the middle of the shape rather than at an edge.
-
-**Still open.** Most names sit beside their region rather than on it. Fitting text inside the
-shape, turned to its axis and scaled down, would bring more of them home. A first measurement
-suggested almost none would fit, but it used the distance to the globe's centre instead of its
-near surface and so understated the available pixels by about 1.7x at the middle of the view.
-Redo it before building on it.
+- **Where the finger lands decides the answer.** The region lit on `pointerdown` is the one a hold
+  answers. Moving past `TAP_SLOP_PX` makes it a drag and cancels the hold. A second finger makes it
+  a pinch and cancels it too.
+- **A tap's name stays up after the finger lifts**, until the next touch, a drag, or an answer. It
+  sits above the finger, where the class can read it.
+- **Mouse or touch is decided per event** from `pointerType`, never per device. A touchscreen
+  Chromebook gets both.
+- **The browser's own long press is blocked on the globe.** Chromium opens a menu or selects text
+  on a held finger, and a held finger is how a touch player answers.
+- **The hold ring is a CSS animation.** Nothing runs in script while it fills.

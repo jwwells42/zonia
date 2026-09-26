@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { feature } from 'topojson-client';
 import { REGIONS } from './regions.js';
-import { labelAnchors } from './labels.js';
-import { regionIndex, regionAt } from './pick.js';
 import { polygonParts, pointInRings, ringBounds, capResolution, angularSpan } from './geo.js';
 
 // three-conic-polygon-geometry reads a global THREE if there is one. There is
@@ -89,22 +87,6 @@ describe('built geodata', () => {
 				for (const f of features) {
 					expect(['Polygon', 'MultiPolygon']).toContain(f.geometry.type);
 					expect(f.geometry.coordinates.length).toBeGreaterThan(0);
-				}
-			});
-
-			it('puts every label anchor inside its own region', () => {
-				// Against the real geometry, not a fixture. Two things break silently
-				// here. A label sitting in the wrong country still renders, just over
-				// a neighbour. A tap landing on the wrong country still scores, just
-				// against the wrong answer. Both come down to the same question, and
-				// both are worst on the awkward outlines a student finds hardest, so
-				// this has to run on the shipped data.
-				const index = regionIndex(features);
-				for (const anchor of labelAnchors(features)) {
-					expect(
-						regionAt(index, anchor.lat, anchor.lng),
-						`${anchor.name} anchor did not resolve to its own region`
-					).toBe(anchor.name);
 				}
 			});
 
