@@ -2,12 +2,12 @@
  * Planar geometry on longitude/latitude pairs.
  *
  * Degrees are treated as a flat plane throughout. That is wrong as geography and
- * right for what these are used for: ranking one region against another, and
- * asking whether a point is inside a shape. Both stay correct under the
- * distortion.
+ * right for what these are used for: asking whether a point is inside a shape,
+ * how far it is from an edge, and how wide a shape is. All stay correct enough
+ * under the distortion.
  *
- * Pure and DOM-free, so `labels.js`, `pick.js` and the tests can all share one
- * copy. Before this existed there were three.
+ * Pure and DOM-free, so `pick.js`, `Globe.svelte` and the tests can all share one
+ * copy.
  */
 
 /**
@@ -18,20 +18,6 @@ export function polygonParts(geometry) {
 	if (geometry.type === 'Polygon') return [geometry.coordinates];
 	if (geometry.type === 'MultiPolygon') return geometry.coordinates;
 	return [];
-}
-
-/**
- * Signed area of a ring, in square degrees.
- *
- * Only ever compared against other rings. It picks the biggest piece of an
- * archipelago and ranks small countries below large ones, which is all it is for.
- */
-export function ringArea(ring) {
-	let sum = 0;
-	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-		sum += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
-	}
-	return Math.abs(sum / 2);
 }
 
 /** Bounding box of a ring. */
