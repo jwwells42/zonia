@@ -92,7 +92,6 @@
 		height: calc(100svh - var(--header-height));
 		color: white;
 		background: #060a18;
-		font-family: Poppins, sans-serif;
 		text-align: center;
 		padding: 1rem;
 	}

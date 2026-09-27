@@ -272,7 +272,6 @@
 		max-width: max(50%, 150px);
 		padding: 3px 5px;
 		border-radius: 3px;
-		font-family: Poppins, sans-serif;
 		font-size: 12px;
 		color: #eee;
 		background: rgba(0, 0, 0, 0.6);
@@ -290,20 +289,20 @@
 		padding: 0.5rem max(1rem, env(safe-area-inset-right)) 0.5rem
 			max(1rem, env(safe-area-inset-left));
 		color: white;
+		/* A step heavier than body text, to hold up over the stars. */
+		font-weight: 500;
 		pointer-events: none;
 		text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 	}
 
 	#instruction {
 		margin: 0;
-		font-family: Poppins, sans-serif;
 		font-size: clamp(1.1rem, 3.5vw, 2rem);
 		line-height: 1.25;
 	}
 
 	#score {
 		margin: 0.25rem 0 0;
-		font-family: Poppins-500, sans-serif;
 		font-size: clamp(0.9rem, 2.2vw, 1.5rem);
 	}
 
@@ -322,7 +321,6 @@
 		gap: 1rem;
 		background: #060a18;
 		color: white;
-		font-family: Poppins, sans-serif;
 	}
 
 	.loading-label {

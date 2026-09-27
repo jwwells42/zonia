@@ -98,12 +98,11 @@
 		padding: 0 max(0.75rem, env(safe-area-inset-right)) 0 max(0.75rem, env(safe-area-inset-left));
 		box-sizing: border-box;
 		background-color: #c82689;
-		font-family: 'Anta', sans-serif;
 	}
 
 	.logo {
 		font-size: clamp(1.5rem, 4vw, 2rem);
-		font-weight: bolder;
+		font-weight: 800;
 		color: #f58622;
 		text-decoration: none;
 		white-space: nowrap;
@@ -137,6 +136,7 @@
 		align-items: center;
 		color: white;
 		font-size: clamp(0.95rem, 1.6vw, 1.2rem);
+		font-weight: 500;
 		text-decoration: none;
 		white-space: nowrap;
 	}

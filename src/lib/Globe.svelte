@@ -754,7 +754,6 @@
 		border-radius: 6px;
 		background: rgba(6, 10, 24, 0.6);
 		color: white;
-		font-family: Poppins, sans-serif;
 		font-size: 0.9rem;
 		cursor: pointer;
 	}
@@ -780,9 +779,8 @@
 		border: 1px solid rgba(255, 255, 255, 0.35);
 		border-radius: 4px;
 		/* Big enough to read across a classroom from a wall panel. */
-		font:
-			1.1rem Poppins,
-			sans-serif;
+		font-size: 1.1rem;
+		font-weight: 500;
 		white-space: nowrap;
 		color: #fff;
 		background: rgba(6, 10, 24, 0.85);
@@ -840,26 +838,25 @@
 		padding: 0.5rem max(1rem, env(safe-area-inset-right)) 0.5rem
 			max(1rem, env(safe-area-inset-left));
 		color: white;
+		/* A step heavier than body text, to hold up over the stars. */
+		font-weight: 500;
 		pointer-events: none;
 		text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 	}
 
 	#instruction {
 		margin: 0;
-		font-family: Poppins, sans-serif;
 		font-size: clamp(1.1rem, 3.5vw, 2rem);
 		line-height: 1.25;
 	}
 
 	#score {
 		margin: 0.25rem 0 0;
-		font-family: Poppins-500, sans-serif;
 		font-size: clamp(0.9rem, 2.2vw, 1.5rem);
 	}
 
 	#hint {
 		margin: 0.25rem 0 0;
-		font-family: Poppins, sans-serif;
 		font-size: clamp(0.8rem, 1.6vw, 1rem);
 		opacity: 0.85;
 	}
@@ -879,7 +876,6 @@
 		gap: 1rem;
 		background: #060a18;
 		color: white;
-		font-family: Poppins, sans-serif;
 	}
 
 	.loading-label {

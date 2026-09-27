@@ -60,13 +60,12 @@
 		max-width: 44rem;
 		background: #060a18;
 		color: #e8eef6;
-		font-family: var(--font-body);
 	}
 
 	h1 {
 		margin: 0 0 0.5rem;
-		font-family: 'Anta', sans-serif;
 		font-size: clamp(1.6rem, 5vw, 2.4rem);
+		font-weight: 700;
 		color: #f58622;
 	}
 
@@ -114,8 +113,8 @@
 	}
 
 	.letter {
-		font-family: 'Anta', sans-serif;
 		font-size: 2.5rem;
+		font-weight: 800;
 		line-height: 1;
 		color: #f58622;
 	}

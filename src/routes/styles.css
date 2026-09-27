@@ -1,25 +1,20 @@
+/* The one typeface. Atkinson Hyperlegible Next, from the Braille Institute,
+   was drawn with low-vision readers so that letters like I, l and 1 look
+   different. In the fonts it replaced, "Illinois" began with two identical
+   strokes. Upright only: italic reads worse for students with dyslexia
+   (Rello and Baeza-Yates, 2013). One variable file covers every weight. */
 @font-face {
-	font-family: Anta;
-	src: url(/Anta-Regular.ttf);
-	font-display: swap;
-}
-
-@font-face {
-	font-family: Poppins;
-	src: url(/poppins-italic.woff2);
-	font-display: swap;
-}
-
-@font-face {
-	font-family: Poppins-500;
-	src: url(/poppins-500.woff2);
+	font-family: 'Atkinson Hyperlegible Next';
+	src: url(/fonts/atkinson-hyperlegible-next.woff2) format('woff2');
+	font-weight: 200 800;
+	font-style: normal;
 	font-display: swap;
 }
 
 :root {
 	--font-body:
-		Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
-		'Open Sans', 'Helvetica Neue', sans-serif;
+		'Atkinson Hyperlegible Next', Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		sans-serif;
 	/* The globe sizes itself against this, so it must be a real number the
 	   layout can subtract, not an implicit result of the header's contents. */
 	--header-height: 56px;
@@ -43,6 +38,11 @@ body {
 body {
 	min-height: 100svh;
 	font-family: var(--font-body);
+}
+
+/* Browsers give buttons their own system font. */
+button {
+	font: inherit;
 }
 
 h1,
