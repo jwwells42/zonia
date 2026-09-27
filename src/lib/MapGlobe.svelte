@@ -245,7 +245,7 @@
 		width: 100%;
 		height: calc(100svh - var(--header-height));
 		overflow: hidden;
-		background-color: #060a18;
+		background-color: var(--night);
 		background-size: cover;
 		background-position: center;
 	}
@@ -288,7 +288,7 @@
 		max-width: min(30rem, calc(100% - 2rem));
 		padding: 0.5rem max(1rem, env(safe-area-inset-right)) 0.5rem
 			max(1rem, env(safe-area-inset-left));
-		color: white;
+		color: var(--ink);
 		/* A step heavier than body text, to hold up over the stars. */
 		font-weight: 500;
 		pointer-events: none;
@@ -319,8 +319,8 @@
 		align-items: center;
 		justify-content: center;
 		gap: 1rem;
-		background: #060a18;
-		color: white;
+		background: var(--night);
+		color: var(--ink);
 	}
 
 	.loading-label {
@@ -332,7 +332,7 @@
 		width: 2rem;
 		height: 2rem;
 		border: 3px solid rgba(255, 255, 255, 0.15);
-		border-top-color: #c82689;
+		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 900ms linear infinite;
 	}

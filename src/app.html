@@ -13,7 +13,8 @@
 			crossorigin
 		/>
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-		<meta name="theme-color" content="#c82689" />
+		<!-- --surface in styles.css, so the browser bar matches the header. -->
+		<meta name="theme-color" content="#1c1d1f" />
 		<meta
 			name="description"
 			content="Learn world and United States geography. Find regions on a 3D globe."
@@ -22,7 +23,10 @@
 			/* Painted from the HTML itself, before any JavaScript runs. The app is
 			   client-rendered and its bundle carries a WebGL engine, so without this
 			   the first thing a visitor sees is a blank page for as long as that
-			   takes to arrive and parse. Removed by the app once it mounts. */
+			   takes to arrive and parse. Removed by the app once it mounts.
+
+			   The colours copy --night, --ink and --accent in styles.css, which
+			   has not loaded yet when this paints. */
 			#boot {
 				position: fixed;
 				inset: 0;
@@ -32,20 +36,19 @@
 				justify-content: center;
 				gap: 1.25rem;
 				background: #060a18;
-				color: #fff;
+				color: #ffffff;
 				font-family: system-ui, sans-serif;
 			}
 			#boot .mark {
 				font-size: 2.5rem;
 				font-weight: 700;
-				color: #f58622;
 				letter-spacing: 0.02em;
 			}
 			#boot .spinner {
 				width: 2rem;
 				height: 2rem;
 				border: 3px solid rgba(255, 255, 255, 0.15);
-				border-top-color: #c82689;
+				border-top-color: #cc79a7;
 				border-radius: 50%;
 				animation: boot-spin 900ms linear infinite;
 			}

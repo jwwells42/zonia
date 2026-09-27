@@ -731,7 +731,7 @@
 		/* The starfield, which used to be a scene-sized sphere inside WebGL. It
 		   never moves, so painting it once in CSS beats redrawing every pixel of
 		   it on every frame. */
-		background-color: #060a18;
+		background-color: var(--night);
 		background-size: cover;
 		background-position: center;
 	}
@@ -753,7 +753,7 @@
 		border: 1px solid rgba(255, 255, 255, 0.35);
 		border-radius: 6px;
 		background: rgba(6, 10, 24, 0.6);
-		color: white;
+		color: var(--ink);
 		font-size: 0.9rem;
 		cursor: pointer;
 	}
@@ -782,7 +782,7 @@
 		font-size: 1.1rem;
 		font-weight: 500;
 		white-space: nowrap;
-		color: #fff;
+		color: var(--ink);
 		background: rgba(6, 10, 24, 0.85);
 	}
 
@@ -837,7 +837,7 @@
 		max-width: min(30rem, calc(100% - 2rem));
 		padding: 0.5rem max(1rem, env(safe-area-inset-right)) 0.5rem
 			max(1rem, env(safe-area-inset-left));
-		color: white;
+		color: var(--ink);
 		/* A step heavier than body text, to hold up over the stars. */
 		font-weight: 500;
 		pointer-events: none;
@@ -874,8 +874,8 @@
 		align-items: center;
 		justify-content: center;
 		gap: 1rem;
-		background: #060a18;
-		color: white;
+		background: var(--night);
+		color: var(--ink);
 	}
 
 	.loading-label {
@@ -893,7 +893,7 @@
 
 	.progress {
 		height: 100%;
-		background: #f58622;
+		background: var(--accent);
 		transition: width 200ms ease-out;
 	}
 

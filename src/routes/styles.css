@@ -18,6 +18,30 @@
 	/* The globe sizes itself against this, so it must be a real number the
 	   layout can subtract, not an implicit result of the header's contents. */
 	--header-height: 56px;
+
+	/* The page's colours. The globe's are in src/lib/palette.js.
+
+	   Greys are USWDS system tokens, named beside each. The gap between two
+	   USWDS grades fixes their WCAG contrast, so a text pair is chosen by its
+	   grade numbers. https://designsystem.digital.gov/design-tokens/color/overview/
+
+	   The only hue is the accent, Okabe-Ito reddish purple. The globe uses three
+	   other Okabe-Ito hues to mean hover, right and wrong. This one is the hue
+	   that is left, so the page never borrows a colour that means an answer.
+
+	   Translucent overlays stay as rgba() where they are used. Mixing a token
+	   with transparency needs color-mix(), which arrived in Chromium 111. The
+	   classroom panel runs 99.
+
+	   src/app.html repeats four of these, because it paints before this file
+	   loads. */
+	--night: #060a18; /* the starfield backdrop, behind everything */
+	--surface: #1c1d1f; /* gray-cool-90. Header and menus */
+	--surface-hover: #2d2e2f; /* gray-cool-80 */
+	--line: #3d4551; /* gray-cool-70 */
+	--ink: #ffffff; /* grade 0. 16.9:1 on --surface */
+	--ink-muted: #a9aeb1; /* gray-cool-30. 7.5:1 on --surface */
+	--accent: #cc79a7; /* Okabe-Ito reddish purple. 5.5:1 on --surface */
 }
 
 @media (min-width: 1151px) {
@@ -32,7 +56,7 @@ body {
 	/* The globe owns the viewport; nothing here should scroll behind it. */
 	overflow: hidden;
 	overscroll-behavior: none;
-	background: #060a18;
+	background: var(--night);
 }
 
 body {
