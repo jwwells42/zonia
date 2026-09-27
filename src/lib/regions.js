@@ -30,6 +30,35 @@ export const REGIONS = {
 	'/asia': { label: 'Asia', dataset: 'asia', pov: [28, 84, 1.2] },
 	'/middle-east': { label: 'Middle East', dataset: 'me', pov: [29, 47, 1.4] },
 	'/north-america': { label: 'North America', dataset: 'na', pov: [39, -95, 1.4] },
+
+	// Continent subregions follow the UN's M49 scheme, names and membership:
+	// https://unstats.un.org/unsd/methodology/m49/overview/
+	// Four quiz regions are not in M49. Each goes where the country around or
+	// beside it is: Somaliland with Somalia, Kosovo with Serbia, Taiwan with
+	// China, Northern Cyprus with Cyprus. Natural Earth places them the same way.
+	//
+	// M49's Northern America is only Canada, the US and Greenland. Too few for a
+	// quiz, so they stay in the North America quiz only.
+	//
+	// Each camera is on the subregion's mainland, not its overseas territories.
+	// Eastern Europe frames the European part of Russia.
+	'/africa/northern': { label: 'Northern Africa', dataset: 'af-n', pov: [23, 10, 1.05] },
+	'/africa/western': { label: 'Western Africa', dataset: 'af-w', pov: [16, -1, 0.8] },
+	'/africa/middle': { label: 'Middle Africa', dataset: 'af-m', pov: [2, 20, 1.2] },
+	'/africa/eastern': { label: 'Eastern Africa', dataset: 'af-e', pov: [-4, 36, 1.25] },
+	'/africa/southern': { label: 'Southern Africa', dataset: 'af-s', pov: [-26, 22, 0.65] },
+	'/europe/northern': { label: 'Northern Europe', dataset: 'eu-n', pov: [60, 4, 0.75] },
+	'/europe/western': { label: 'Western Europe', dataset: 'eu-w', pov: [48, 6, 0.5] },
+	'/europe/southern': { label: 'Southern Europe', dataset: 'eu-s', pov: [42, 9, 0.65] },
+	'/europe/eastern': { label: 'Eastern Europe', dataset: 'eu-e', pov: [50, 28, 0.65] },
+	'/asia/western': { label: 'Western Asia', dataset: 'as-w', pov: [28, 43, 1.0] },
+	'/asia/central': { label: 'Central Asia', dataset: 'as-c', pov: [45, 67, 0.7] },
+	'/asia/southern': { label: 'Southern Asia', dataset: 'as-s', pov: [22, 71, 1.0] },
+	'/asia/eastern': { label: 'Eastern Asia', dataset: 'as-e', pov: [36, 110, 1.15] },
+	'/asia/south-eastern': { label: 'South-eastern Asia', dataset: 'as-se', pov: [9, 116, 1.15] },
+	'/north-america/central': { label: 'Central America', dataset: 'na-c', pov: [20, -98, 0.85] },
+	'/north-america/caribbean': { label: 'Caribbean', dataset: 'na-car', pov: [18, -73, 0.6] },
+
 	'/south-america': { label: 'South America', dataset: 'sa', pov: [-25, -55, 1.4] },
 	// Built by the pipeline and playable, but deliberately absent from NAV. The
 	// original site had the data without ever linking to it.
@@ -37,25 +66,41 @@ export const REGIONS = {
 	'/world': { label: 'World', dataset: 'world', pov: [0, 0, 1.4] }
 };
 
-/** Header navigation. Top-level entries may carry a submenu of related quizzes. */
+/**
+ * A nav entry for a quiz, named as its `REGIONS` entry names it. `parts` are
+ * the paths of its submenu, if it has one.
+ */
+const link = (href, parts) => ({
+	label: REGIONS[href].label,
+	href,
+	children: parts?.map((part) => link(part))
+});
+
+/**
+ * Header navigation, as paths. Labels come from `REGIONS`, so a quiz is named
+ * in one place.
+ */
 export const NAV = [
-	{
-		label: 'United States',
-		href: '/',
-		children: [
-			{ label: 'Northeast', href: '/us/northeast' },
-			{ label: 'South', href: '/us/south' },
-			{ label: 'Midwest', href: '/us/midwest' },
-			{ label: 'West', href: '/us/west' }
-		]
-	},
-	{ label: 'Africa', href: '/africa' },
-	{ label: 'Europe', href: '/europe' },
-	{ label: 'Asia', href: '/asia' },
-	{ label: 'Middle East', href: '/middle-east' },
-	{ label: 'North America', href: '/north-america' },
-	{ label: 'South America', href: '/south-america' },
-	{ label: 'World', href: '/world' }
+	link('/', ['/us/northeast', '/us/south', '/us/midwest', '/us/west']),
+	link('/africa', [
+		'/africa/northern',
+		'/africa/western',
+		'/africa/middle',
+		'/africa/eastern',
+		'/africa/southern'
+	]),
+	link('/europe', ['/europe/northern', '/europe/western', '/europe/southern', '/europe/eastern']),
+	link('/asia', [
+		'/asia/western',
+		'/asia/central',
+		'/asia/southern',
+		'/asia/eastern',
+		'/asia/south-eastern'
+	]),
+	link('/middle-east'),
+	link('/north-america', ['/north-america/central', '/north-america/caribbean']),
+	link('/south-america'),
+	link('/world')
 ];
 
 /** Resolves a URL pathname to a region, tolerating a trailing slash. */
