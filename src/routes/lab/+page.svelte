@@ -58,16 +58,14 @@
 		padding: clamp(1.5rem, 5vw, 3rem) max(1.25rem, env(safe-area-inset-left));
 		margin: 0 auto;
 		max-width: 44rem;
-		background: #060a18;
-		color: #e8eef6;
-		font-family: var(--font-body);
+		background: var(--night);
+		color: var(--ink);
 	}
 
 	h1 {
 		margin: 0 0 0.5rem;
-		font-family: 'Anta', sans-serif;
 		font-size: clamp(1.6rem, 5vw, 2.4rem);
-		color: #f58622;
+		font-weight: 700;
 	}
 
 	h2 {
@@ -78,7 +76,7 @@
 	.lead {
 		margin: 0;
 		font-size: 1.05rem;
-		opacity: 0.85;
+		color: var(--ink-muted);
 	}
 
 	section h2 {
@@ -100,24 +98,24 @@
 		gap: 0.4rem;
 		min-height: 7rem;
 		padding: 1.25rem;
-		border: 1px solid #24405c;
+		border: 1px solid var(--line);
 		border-radius: 12px;
-		background: #0e1c2e;
-		color: #e8eef6;
+		background: var(--surface);
+		color: var(--ink);
 		text-decoration: none;
 	}
 
 	.card:hover,
 	.card:focus-visible {
-		border-color: #f58622;
-		background: #142639;
+		border-color: var(--accent);
+		background: var(--surface-hover);
 	}
 
 	.letter {
-		font-family: 'Anta', sans-serif;
 		font-size: 2.5rem;
+		font-weight: 800;
 		line-height: 1;
-		color: #f58622;
+		color: var(--accent);
 	}
 
 	ul {
@@ -133,6 +131,6 @@
 	.note {
 		margin: 0;
 		font-size: 0.95rem;
-		opacity: 0.7;
+		color: var(--ink-muted);
 	}
 </style>

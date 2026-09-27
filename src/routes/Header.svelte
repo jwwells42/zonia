@@ -25,7 +25,11 @@
 />
 
 <header>
-	<a href="/" class="logo" onclick={closeAll}>Zonia</a>
+	<a href="/" class="logo" onclick={closeAll}>
+		<!-- Empty alt: the name beside it already says where the link goes. -->
+		<img src="/favicon.svg" alt="" width="32" height="32" />
+		Zonia
+	</a>
 
 	<button
 		class="menu-toggle"
@@ -97,16 +101,24 @@
 		min-height: var(--header-height);
 		padding: 0 max(0.75rem, env(safe-area-inset-right)) 0 max(0.75rem, env(safe-area-inset-left));
 		box-sizing: border-box;
-		background-color: #c82689;
-		font-family: 'Anta', sans-serif;
+		border-bottom: 1px solid var(--line);
+		background-color: var(--surface);
 	}
 
 	.logo {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: clamp(1.5rem, 4vw, 2rem);
-		font-weight: bolder;
-		color: #f58622;
+		font-weight: 800;
+		color: var(--ink);
 		text-decoration: none;
 		white-space: nowrap;
+	}
+
+	.logo img {
+		width: 1.2em;
+		height: 1.2em;
 	}
 
 	.navbar ul {
@@ -135,19 +147,20 @@
 		box-sizing: border-box;
 		display: flex;
 		align-items: center;
-		color: white;
+		color: var(--ink);
 		font-size: clamp(0.95rem, 1.6vw, 1.2rem);
+		font-weight: 500;
 		text-decoration: none;
 		white-space: nowrap;
 	}
 
 	.navbar a:hover,
 	.navbar a:focus-visible {
-		background-color: #8b2261;
+		background-color: var(--surface-hover);
 	}
 
 	.navbar a[aria-current='page'] {
-		box-shadow: inset 0 -3px 0 #f58622;
+		box-shadow: inset 0 -3px 0 var(--accent);
 	}
 
 	.disclosure,
@@ -160,7 +173,7 @@
 		padding: 0;
 		border: 0;
 		background: none;
-		color: white;
+		color: var(--ink);
 		cursor: pointer;
 	}
 
@@ -168,7 +181,7 @@
 	.menu-toggle:hover,
 	.disclosure:focus-visible,
 	.menu-toggle:focus-visible {
-		background-color: #8b2261;
+		background-color: var(--surface-hover);
 	}
 
 	.chevron {
@@ -218,7 +231,8 @@
 	.submenu {
 		position: absolute;
 		min-width: 12rem;
-		background: #c82689;
+		border: 1px solid var(--line);
+		background: var(--surface);
 		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
 	}
 
@@ -245,8 +259,8 @@
 			right: 0;
 			max-height: calc(100svh - var(--header-height));
 			overflow-y: auto;
-			background: #c82689;
-			border-top: 1px solid rgba(0, 0, 0, 0.15);
+			background: var(--surface);
+			border-top: 1px solid var(--line);
 			display: none;
 		}
 
@@ -269,8 +283,10 @@
 
 		.submenu {
 			position: static;
+			border: 0;
 			box-shadow: none;
-			background: #a81f73;
+			/* Recessed below the menu, so its own hover still shows. */
+			background: var(--night);
 		}
 
 		.submenu a {

@@ -18,6 +18,7 @@
 	import { feature, mesh } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
+	import { LAND, HOVER, CORRECT, WRONG, BORDER } from './palette.js';
 	import { regionIndex, regionAt } from './pick.js';
 	import { capResolution } from './geo.js';
 	import { datasetUrl } from './regions.js';
@@ -40,11 +41,6 @@
 		effects = true
 	} = $props();
 
-	const CAP = '#4682b4'; // steelblue
-	const CAP_HOVER = '#f58622';
-	const CAP_CORRECT = '#3fb950';
-	const CAP_WRONG = '#d9534f';
-
 	/**
 	 * Regions lie flat on the globe rather than standing proud of it.
 	 *
@@ -66,7 +62,6 @@
 	 * the cap they outline.
 	 */
 	const BORDER_LIFT = 1e-4;
-	const BORDER = '#111';
 
 	let globeEl;
 	let containerEl;
@@ -108,10 +103,10 @@
 
 	/** One colour per visual state. `Color` converts to the linear values three.js draws with. */
 	const capColors = {
-		base: new Color(CAP),
-		hover: new Color(CAP_HOVER),
-		correct: new Color(CAP_CORRECT),
-		wrong: new Color(CAP_WRONG)
+		base: new Color(LAND),
+		hover: new Color(HOVER),
+		correct: new Color(CORRECT),
+		wrong: new Color(WRONG)
 	};
 
 	const nameOf = (polygon) => polygon.properties.name;
@@ -690,6 +685,7 @@
 			class="hold-ring"
 			style:transform="translate({hold.x}px, {hold.y}px) translate(-50%, -50%)"
 			style:--hold-ms="{HOLD_MS}ms"
+			style:--hold-colour={HOVER}
 			viewBox="0 0 100 100"
 			aria-hidden="true"
 		>
@@ -735,7 +731,7 @@
 		/* The starfield, which used to be a scene-sized sphere inside WebGL. It
 		   never moves, so painting it once in CSS beats redrawing every pixel of
 		   it on every frame. */
-		background-color: #060a18;
+		background-color: var(--night);
 		background-size: cover;
 		background-position: center;
 	}
@@ -757,8 +753,7 @@
 		border: 1px solid rgba(255, 255, 255, 0.35);
 		border-radius: 6px;
 		background: rgba(6, 10, 24, 0.6);
-		color: white;
-		font-family: Poppins, sans-serif;
+		color: var(--ink);
 		font-size: 0.9rem;
 		cursor: pointer;
 	}
@@ -784,11 +779,10 @@
 		border: 1px solid rgba(255, 255, 255, 0.35);
 		border-radius: 4px;
 		/* Big enough to read across a classroom from a wall panel. */
-		font:
-			1.1rem Poppins,
-			sans-serif;
+		font-size: 1.1rem;
+		font-weight: 500;
 		white-space: nowrap;
-		color: #fff;
+		color: var(--ink);
 		background: rgba(6, 10, 24, 0.85);
 	}
 
@@ -807,7 +801,8 @@
 	}
 
 	.hold-ring .fill {
-		stroke: #f58622;
+		/* The hover colour, so the ring matches the region it will answer. */
+		stroke: var(--hold-colour);
 		stroke-dasharray: 100;
 		stroke-dashoffset: 100;
 		/* Start at twelve o'clock and fill clockwise. */
@@ -842,27 +837,26 @@
 		max-width: min(30rem, calc(100% - 2rem));
 		padding: 0.5rem max(1rem, env(safe-area-inset-right)) 0.5rem
 			max(1rem, env(safe-area-inset-left));
-		color: white;
+		color: var(--ink);
+		/* A step heavier than body text, to hold up over the stars. */
+		font-weight: 500;
 		pointer-events: none;
 		text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 	}
 
 	#instruction {
 		margin: 0;
-		font-family: Poppins, sans-serif;
 		font-size: clamp(1.1rem, 3.5vw, 2rem);
 		line-height: 1.25;
 	}
 
 	#score {
 		margin: 0.25rem 0 0;
-		font-family: Poppins-500, sans-serif;
 		font-size: clamp(0.9rem, 2.2vw, 1.5rem);
 	}
 
 	#hint {
 		margin: 0.25rem 0 0;
-		font-family: Poppins, sans-serif;
 		font-size: clamp(0.8rem, 1.6vw, 1rem);
 		opacity: 0.85;
 	}
@@ -880,9 +874,8 @@
 		align-items: center;
 		justify-content: center;
 		gap: 1rem;
-		background: #060a18;
-		color: white;
-		font-family: Poppins, sans-serif;
+		background: var(--night);
+		color: var(--ink);
 	}
 
 	.loading-label {
@@ -900,7 +893,7 @@
 
 	.progress {
 		height: 100%;
-		background: #f58622;
+		background: var(--accent);
 		transition: width 200ms ease-out;
 	}
 

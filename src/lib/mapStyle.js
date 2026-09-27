@@ -13,16 +13,23 @@
  * CSS layer behind a canvas whose sky is transparent.
  */
 
+import { LAND, HOVER, CORRECT, WRONG, LEARNED, BORDER } from './palette.js';
+
+/**
+ * The region colours are shared with Globe.svelte through palette.js. The
+ * basemap colours are MapLibre's alone, because globe.gl draws the night-earth
+ * image there instead.
+ */
 export const COLORS = {
 	ocean: '#0b1c30',
 	land: '#16273b',
 	landLine: '#22384f',
-	region: '#4682b4',
-	regionHover: '#f58622',
-	regionCorrect: '#3fb950',
-	regionWrong: '#d9534f',
-	regionLearned: '#2f5f86',
-	regionLine: '#0d1a26'
+	region: LAND,
+	regionHover: HOVER,
+	regionCorrect: CORRECT,
+	regionWrong: WRONG,
+	regionLearned: LEARNED,
+	regionLine: BORDER
 };
 
 /** Layer id the quiz queries and styles. Exported so the component never guesses it. */

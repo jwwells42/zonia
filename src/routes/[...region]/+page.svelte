@@ -90,9 +90,8 @@
 		align-items: center;
 		justify-content: center;
 		height: calc(100svh - var(--header-height));
-		color: white;
-		background: #060a18;
-		font-family: Poppins, sans-serif;
+		color: var(--ink);
+		background: var(--night);
 		text-align: center;
 		padding: 1rem;
 	}
