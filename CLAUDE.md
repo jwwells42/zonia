@@ -167,13 +167,14 @@ the globe, because lag is a frame-rate experience. Real GPU unless noted.
 Read that carefully before assuming MapLibre is simply faster.
 
 That table is a renderer comparison and nothing more. Its A column is stale as an absolute: it was
-taken at a different viewport and before the starfield stopped being a second WebGL sphere. The
-6x CPU row now reads 20 fps, not 10. Use the measurements in the next section for anything about
-where the time goes.
+taken at a different viewport, before the starfield stopped being a second WebGL sphere, and
+before the land became one mesh. Use the measurements in the next section for anything about where
+the time goes. The comparison has not been re-run since.
 
 **MapLibre's advantage is CPU bound, not GPU bound.** It tiles and simplifies GeoJSON in a Web
-Worker. three-globe builds an object per polygon part on the main thread and submits every one of
-them every frame. Starve the CPU and A collapses while B does not.
+Worker. three-globe built an object per polygon part on the main thread and submitted every one of
+them every frame. Starve the CPU and A collapsed while B did not. A no longer does that. See "The
+land is one mesh" below.
 
 On healthy hardware the two are indistinguishable, which is why desktop testing finds nothing.
 
@@ -292,6 +293,23 @@ of an impression.
 they answer it: neither moves the frame rate on this workload. Keep them for checking a new device,
 not for fixing this one.
 
+**No URL flag can turn the GPU off.** The browser chooses the GPU before any page code runs. To
+imitate a weak device from a desktop, change the browser instead:
+
+- Weak CPU: DevTools, Performance, CPU throttling. 6x reproduced the panel's 20 fps before the
+  land became one mesh.
+- No GPU: start Chromium with software WebGL. Recent Chromium needs the second flag, or WebGL is
+  simply unavailable. The separate profile stops an already running Chromium from ignoring the
+  flags.
+
+  ```
+  chromium --use-angle=swiftshader --enable-unsafe-swiftshader --user-data-dir=/tmp/zonia-nogpu
+  ```
+
+  Check the GPU line in `?stats` says SwiftShader. If it names a real card, the flags did not take.
+  Software rendering runs GPU work on the CPU, so this mixes the two costs. It tells you whether a
+  change helps a weak GPU. It does not tell you which of the two is the limit.
+
 Frame rate alone does not prove the renderer drew anything, and there is no code that can tell you
 it did: neither renderer keeps its drawing buffer, so reading the canvas afterwards returns
 transparent pixels whether or not the globe is on screen. An attempt at automating this reported
@@ -354,8 +372,8 @@ Things that look harmless and are not:
   construction. `Globe.svelte` drives `.width()/.height()` from a `ResizeObserver`; without it the
   page overflows and phone rotation permanently breaks the view.
 - **Dispose the globe on unmount.** `world._destructor()`, plus the land's geometries and
-  materials, which globe.gl does not know about. Skipping this
-  leaks a WebGL context per region switch. The original code avoided the issue by forcing a full
+  materials. globe.gl 2.46 empties its scene on destruct as well, but the land is ours, so we free
+  it ourselves. Skipping this leaks a WebGL context per region switch. The original code avoided the issue by forcing a full
   page reload on every navigation. That is why it felt slow.
 - **Curvature resolution trades triangles for roundness.** The 5° default is wasted on a
   zoomed-in region where nothing spans enough longitude to bend visibly. See `curvatureFor`.
@@ -412,9 +430,14 @@ Measured on the GTX 1050 at 6x CPU throttle, 1280x700 at dpr 3, dragging:
 | `/middle-east` | 70 to 4    | 60         | 60        | 67 ms              | 33 ms |
 
 The "before" figures are lower than the 20 fps in the table above. Same GPU and throttle, but a
-different day and harness, so compare within a table, not across them. `/world` still has
-something else costing frames at 6x. Nobody has found it yet. `?stats` now shows draw calls, so a
-panel can confirm the 4.
+different day and harness, so compare within a table, not across them. `?stats` now shows draw
+calls, so a panel can confirm the 4.
+
+**Where it stands, September 2026.** On the maintainer's desktop in Chrome DevTools, `/world` drags
+smoothly at 6x CPU throttle. At 20x everything lags: turning, hovering, the lot. That points to
+per-frame main-thread cost in general, not one feature. Tap and hold works on a phone. The panel
+itself has not been re-measured since the land became one mesh. Do that first. `/world?stats` on
+the panel is the number that matters.
 
 The client bundle is ~1.8 MB raw / ~530 KB gzipped, almost entirely three.js and three-globe.
 three-globe ships as one pre-bundled module with every layer (hexbin, tiles, voronoi, paths, arcs)

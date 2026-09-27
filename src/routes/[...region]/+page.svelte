@@ -27,13 +27,10 @@
 	 * three-render-objects; MapLibre takes the raw value, so it is capped here to
 	 * match and to keep the A/B fair.
 	 *
-	 * The override exists because pixel count is the one lever that separates a
-	 * fill-rate problem from a main-thread problem. Classroom panels report a
-	 * device pixel ratio of 3, and drawing a 1280x624 viewport at 3 is 7.2
-	 * megapixels. If frame rate scales with that number the GPU is the bottleneck,
-	 * and no change of renderer will help. If it does not move, the cost is
-	 * elsewhere. Reading it from the URL means that test is three page loads on
-	 * the actual hardware rather than a guess made here.
+	 * The override separates a fill-rate problem from a main-thread one. If frame
+	 * rate scales with pixel count, the GPU is the limit. If it does not move, the
+	 * cost is elsewhere. On the classroom panel's profile it did not move. See
+	 * CLAUDE.md. It stays for testing the next device.
 	 */
 	const pixelRatio = $derived(
 		Number(page.url.searchParams.get('dpr')) || Math.min(2, window.devicePixelRatio || 1)
@@ -51,10 +48,9 @@
 	/**
 	 * `?fx=off` drops the atmosphere glow and antialiasing.
 	 *
-	 * Both are pure appearance and both cost fill rate, which is the suspected
-	 * bottleneck on classroom panels. Here as a flag rather than a decision
-	 * because the difference has to be measured on the hardware, not guessed at
-	 * on a desktop where neither one shows up.
+	 * Both are pure appearance and both cost fill rate. Like `?dpr`, it tests a
+	 * device for a fill-rate limit. On the classroom panel's profile it changed
+	 * nothing.
 	 */
 	const effects = $derived(page.url.searchParams.get('fx') !== 'off');
 </script>

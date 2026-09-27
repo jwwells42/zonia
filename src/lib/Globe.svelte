@@ -231,13 +231,12 @@
 	 *
 	 * Only the regions' vertices ever change after this, and only their colour.
 	 */
-	function buildLand(polygons, topology) {
+	function buildLand(polygons, topology, object) {
 		const radius = world.getGlobeRadius();
 		const { geometry, ranges } = landGeometry(polygons, {
 			radius: radius * (1 + ALTITUDE),
 			resolutionFor: capResolutionFor
 		});
-		const object = topology.objects[Object.keys(topology.objects)[0]];
 		const borders = borderGeometry(mesh(topology, object), {
 			radius: radius * (1 + ALTITUDE + BORDER_LIFT),
 			resolution: curvatureFor(pov[2])
@@ -524,8 +523,9 @@
 			const topology = await res.json();
 			if (cancelled) return;
 
-			const collection = feature(topology, topology.objects[Object.keys(topology.objects)[0]]);
-			const polygons = collection.features;
+			// Each dataset file holds exactly one object: every region in the quiz.
+			const object = Object.values(topology.objects)[0];
+			const polygons = feature(topology, object).features;
 			quiz = createQuiz(polygons.map(nameOf));
 			total = quiz.state.total;
 			// One pass over the geometry, here rather than per tap.
@@ -550,8 +550,8 @@
 			await tick();
 
 			world = new GlobeGL(globeEl, {
-				// Antialiasing is on by default in three-render-objects. Off is worth
-				// measuring on a weak mobile GPU, where it can cost real frames.
+				// On by default in three-render-objects. `?fx=off` turns it off to test
+				// a device for a fill-rate limit.
 				rendererConfig: { antialias: effects }
 			})
 				.pointOfView({ lat: pov[0], lng: pov[1], altitude: pov[2] }, 0)
@@ -576,12 +576,11 @@
 
 			// three-render-objects sets this to Math.min(2, devicePixelRatio) at
 			// construction and offers no option for it, so it is overridden after the
-			// fact. Everything the globe draws is fill-rate work, so this number is
-			// the largest single lever on frame rate.
+			// fact. This is what `?dpr` reaches.
 			world.renderer().setPixelRatio(pixelRatio);
 
 			fit();
-			buildLand(polygons, topology);
+			buildLand(polygons, topology, object);
 
 			progress = 0.85;
 			await tick();
@@ -613,7 +612,8 @@
 			resizeObserver?.disconnect();
 			// Without this, switching regions leaks a WebGL context and its
 			// textures each time. The old code sidestepped it by forcing a full
-			// page reload on every nav.
+			// page reload on every nav. globe.gl now also empties its scene on
+			// destruct, but the land is ours, so we free it ourselves.
 			if (land) {
 				land.geometry.dispose();
 				land.caps.material.dispose();
@@ -717,7 +717,9 @@
 	{#if !ready}
 		<div id="loading">
 			<p class="loading-label">Loading {label || dataset}…</p>
-			<div class="bar"><div class="fill" style:width="{Math.round(progress * 100)}%"></div></div>
+			<div class="bar">
+				<div class="progress" style:width="{Math.round(progress * 100)}%"></div>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -896,7 +898,7 @@
 		overflow: hidden;
 	}
 
-	.fill {
+	.progress {
 		height: 100%;
 		background: #f58622;
 		transition: width 200ms ease-out;
