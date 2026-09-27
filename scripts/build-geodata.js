@@ -64,8 +64,35 @@ const BUDGETS = {
 	'us-w': 7000,
 	'us-s': 6000,
 	'us-mw': 4500,
-	'us-ne': 4000
+	'us-ne': 4000,
+
+	// Continent subregions. A subregion is viewed closer than its continent, so
+	// each country gets about 1.8 times the vertices it has in the continent
+	// quiz, the same step up the US regions take. Never under 3,000: at that
+	// zoom even a handful of countries fills the screen.
+	//
+	// Most of these ask for more than Natural Earth 1:50m holds for the area,
+	// and so get the source at full detail. The limit is the source, not this.
+	'af-n': 3000,
+	'af-w': 4000,
+	'af-m': 3000,
+	'af-e': 4500,
+	'af-s': 3000,
+	'eu-n': 3500,
+	'eu-w': 3000,
+	'eu-s': 4000,
+	'eu-e': 3500,
+	'as-w': 5500,
+	'as-c': 3000,
+	'as-s': 3000,
+	'as-e': 3000,
+	'as-se': 3500,
+	'na-c': 4000,
+	'na-car': 4000
 };
+
+/** The world quiz is the largest, at about 120 KB. */
+const MAX_DATASET_BYTES = 150 * 1024;
 
 const countVertices = (coords) =>
 	typeof coords[0] === 'number' ? 1 : coords.reduce((sum, c) => sum + countVertices(c), 0);
@@ -228,8 +255,13 @@ async function main() {
 
 	const total = rows.reduce((s, r) => s + r.bytes, 0);
 	console.log(`\n  total ${(total / 1024).toFixed(0)} KB across ${rows.length} datasets`);
-	if (total > 1024 * 1024) {
-		throw new Error(`Output is ${(total / 1024 / 1024).toFixed(2)} MB, over the 1 MB budget`);
+	// A player downloads one dataset, the quiz they opened, so the limit is per
+	// file. It used to be 1 MB across all of them, which only counted how many
+	// quizzes there were.
+	const heavy = rows.filter((r) => r.bytes > MAX_DATASET_BYTES);
+	if (heavy.length) {
+		const list = heavy.map((r) => `${r.key} ${(r.bytes / 1024).toFixed(0)} KB`).join(', ');
+		throw new Error(`Over the ${MAX_DATASET_BYTES / 1024} KB per-dataset budget: ${list}`);
 	}
 }
 

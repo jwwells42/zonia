@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { feature } from 'topojson-client';
-import { REGIONS } from './regions.js';
+import { NAV, REGIONS } from './regions.js';
 import { polygonParts, pointInRings, ringBounds, capResolution, angularSpan } from './geo.js';
 
 // three-conic-polygon-geometry reads a global THREE if there is one. There is
@@ -153,6 +153,36 @@ describe('built geodata', () => {
 					c.forEach(walk);
 				};
 				features.forEach((f) => walk(f.geometry.coordinates));
+			});
+		});
+	}
+});
+
+/**
+ * Regions a submenu deliberately leaves out of its parts, by parent dataset.
+ * M49's Northern America is Canada, the US and Greenland: too few for a quiz.
+ */
+const LEFT_OUT = { na: ['CAN', 'GRL', 'USA'] };
+
+describe('submenus', () => {
+	for (const item of NAV.filter((entry) => entry.children)) {
+		const parent = REGIONS[item.href].dataset;
+		const members = rosters[parent].members;
+
+		describe(item.label, () => {
+			const parts = item.children.map((child) => rosters[REGIONS[child.href].dataset].members);
+
+			it('asks only about regions in the parent quiz, named the same', () => {
+				for (const part of parts) {
+					for (const [code, name] of Object.entries(part)) expect(members[code]).toBe(name);
+				}
+			});
+
+			it('puts every region in exactly one part', () => {
+				const counted = parts.flatMap((part) => Object.keys(part));
+				expect(new Set(counted).size).toBe(counted.length);
+				const expected = Object.keys(members).filter((code) => !LEFT_OUT[parent]?.includes(code));
+				expect(counted.sort()).toEqual(expected.sort());
 			});
 		});
 	}

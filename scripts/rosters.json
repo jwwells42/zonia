@@ -180,6 +180,82 @@
 			"ZWE": "Zimbabwe"
 		}
 	},
+	"af-n": {
+		"source": "ne-50m",
+		"members": {
+			"DZA": "Algeria",
+			"EGY": "Egypt",
+			"LBY": "Libya",
+			"MAR": "Morocco",
+			"SDN": "Sudan",
+			"TUN": "Tunisia",
+			"SAH": "Western Sahara"
+		}
+	},
+	"af-w": {
+		"source": "ne-50m",
+		"members": {
+			"BEN": "Benin",
+			"BFA": "Burkina Faso",
+			"GHA": "Ghana",
+			"GIN": "Guinea",
+			"GNB": "Guinea-Bissau",
+			"CIV": "Ivory Coast",
+			"LBR": "Liberia",
+			"MLI": "Mali",
+			"MRT": "Mauritania",
+			"NER": "Niger",
+			"NGA": "Nigeria",
+			"SEN": "Senegal",
+			"SLE": "Sierra Leone",
+			"GMB": "The Gambia",
+			"TGO": "Togo"
+		}
+	},
+	"af-m": {
+		"source": "ne-50m",
+		"members": {
+			"AGO": "Angola",
+			"CMR": "Cameroon",
+			"CAF": "Central African Republic",
+			"TCD": "Chad",
+			"COD": "Democratic Republic of the Congo",
+			"GNQ": "Equatorial Guinea",
+			"GAB": "Gabon",
+			"COG": "Republic of the Congo"
+		}
+	},
+	"af-e": {
+		"source": "ne-50m",
+		"members": {
+			"BDI": "Burundi",
+			"DJI": "Djibouti",
+			"ERI": "Eritrea",
+			"ETH": "Ethiopia",
+			"KEN": "Kenya",
+			"MDG": "Madagascar",
+			"MWI": "Malawi",
+			"MOZ": "Mozambique",
+			"RWA": "Rwanda",
+			"SOM": "Somalia",
+			"SOL": "Somaliland",
+			"SDS": "South Sudan",
+			"TZA": "Tanzania",
+			"UGA": "Uganda",
+			"ZMB": "Zambia",
+			"ZWE": "Zimbabwe"
+		}
+	},
+	"af-s": {
+		"source": "ne-50m",
+		"members": {
+			"BWA": "Botswana",
+			"SWZ": "Eswatini",
+			"LSO": "Lesotho",
+			"NAM": "Namibia",
+			"ZAF": "South Africa"
+		}
+	},
 	"eu": {
 		"source": "ne-50m",
 		"members": {
@@ -222,6 +298,65 @@
 			"CHE": "Switzerland",
 			"UKR": "Ukraine",
 			"GBR": "United Kingdom"
+		}
+	},
+	"eu-n": {
+		"source": "ne-50m",
+		"members": {
+			"DNK": "Denmark",
+			"EST": "Estonia",
+			"FIN": "Finland",
+			"ISL": "Iceland",
+			"IRL": "Ireland",
+			"LVA": "Latvia",
+			"LTU": "Lithuania",
+			"NOR": "Norway",
+			"SWE": "Sweden",
+			"GBR": "United Kingdom"
+		}
+	},
+	"eu-w": {
+		"source": "ne-50m",
+		"members": {
+			"AUT": "Austria",
+			"BEL": "Belgium",
+			"FRA": "France",
+			"DEU": "Germany",
+			"LUX": "Luxembourg",
+			"NLD": "Netherlands",
+			"CHE": "Switzerland"
+		}
+	},
+	"eu-s": {
+		"source": "ne-50m",
+		"members": {
+			"ALB": "Albania",
+			"BIH": "Bosnia and Herzegovina",
+			"HRV": "Croatia",
+			"GRC": "Greece",
+			"ITA": "Italy",
+			"KOS": "Kosovo",
+			"MNE": "Montenegro",
+			"MKD": "North Macedonia",
+			"PRT": "Portugal",
+			"SRB": "Serbia",
+			"SVN": "Slovenia",
+			"ESP": "Spain"
+		}
+	},
+	"eu-e": {
+		"source": "ne-50m",
+		"members": {
+			"BLR": "Belarus",
+			"BGR": "Bulgaria",
+			"CZE": "Czech Republic",
+			"HUN": "Hungary",
+			"MDA": "Moldova",
+			"POL": "Poland",
+			"ROU": "Romania",
+			"RUS": "Russia",
+			"SVK": "Slovakia",
+			"UKR": "Ukraine"
 		}
 	},
 	"asia": {
@@ -276,6 +411,78 @@
 			"YEM": "Yemen"
 		}
 	},
+	"as-w": {
+		"source": "ne-50m",
+		"members": {
+			"ARM": "Armenia",
+			"AZE": "Azerbaijan",
+			"CYP": "Cyprus",
+			"GEO": "Georgia",
+			"IRQ": "Iraq",
+			"ISR": "Israel",
+			"JOR": "Jordan",
+			"KWT": "Kuwait",
+			"LBN": "Lebanon",
+			"OMN": "Oman",
+			"PSX": "Palestine",
+			"QAT": "Qatar",
+			"SAU": "Saudi Arabia",
+			"SYR": "Syria",
+			"TUR": "Turkey",
+			"CYN": "Turkish Republic of Northern Cyprus",
+			"ARE": "United Arab Emirates",
+			"YEM": "Yemen"
+		}
+	},
+	"as-c": {
+		"source": "ne-50m",
+		"members": {
+			"KAZ": "Kazakhstan",
+			"KGZ": "Kyrgyzstan",
+			"TJK": "Tajikistan",
+			"TKM": "Turkmenistan",
+			"UZB": "Uzbekistan"
+		}
+	},
+	"as-s": {
+		"source": "ne-50m",
+		"members": {
+			"AFG": "Afghanistan",
+			"BGD": "Bangladesh",
+			"BTN": "Bhutan",
+			"IND": "India",
+			"IRN": "Iran",
+			"NPL": "Nepal",
+			"PAK": "Pakistan",
+			"LKA": "Sri Lanka"
+		}
+	},
+	"as-e": {
+		"source": "ne-50m",
+		"members": {
+			"JPN": "Japan",
+			"MNG": "Mongolia",
+			"PRK": "North Korea",
+			"CHN": "People's Republic of China",
+			"KOR": "South Korea",
+			"TWN": "Taiwan"
+		}
+	},
+	"as-se": {
+		"source": "ne-50m",
+		"members": {
+			"BRN": "Brunei",
+			"KHM": "Cambodia",
+			"TLS": "East Timor",
+			"IDN": "Indonesia",
+			"LAO": "Laos",
+			"MYS": "Malaysia",
+			"MMR": "Myanmar",
+			"PHL": "Philippines",
+			"THA": "Thailand",
+			"VNM": "Vietnam"
+		}
+	},
 	"me": {
 		"source": "ne-50m",
 		"members": {
@@ -317,6 +524,31 @@
 			"BHS": "The Bahamas",
 			"TTO": "Trinidad and Tobago",
 			"USA": "United States of America"
+		}
+	},
+	"na-c": {
+		"source": "ne-50m",
+		"members": {
+			"BLZ": "Belize",
+			"CRI": "Costa Rica",
+			"SLV": "El Salvador",
+			"GTM": "Guatemala",
+			"HND": "Honduras",
+			"MEX": "Mexico",
+			"NIC": "Nicaragua",
+			"PAN": "Panama"
+		}
+	},
+	"na-car": {
+		"source": "ne-50m",
+		"members": {
+			"CUB": "Cuba",
+			"DOM": "Dominican Republic",
+			"HTI": "Haiti",
+			"JAM": "Jamaica",
+			"PRI": "Puerto Rico",
+			"BHS": "The Bahamas",
+			"TTO": "Trinidad and Tobago"
 		}
 	},
 	"sa": {

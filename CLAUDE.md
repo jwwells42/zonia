@@ -138,7 +138,7 @@ src/lib/landMesh.js        Every cap in one mesh, every border once, no DOM
 src/lib/Globe.svelte       Renderer A, globe.gl / three-globe
 src/lib/MapGlobe.svelte    Renderer B, MapLibre (evaluation)
 src/lib/mapStyle.js        MapLibre style spec and view framing
-src/routes/[...region]/    One route serving all 14 quizzes
+src/routes/[...region]/    One route serving every quiz
 src/routes/lab/            A/B test harness for the renderer comparison
 static/geo/*.topo.json     Built geometry (committed)
 ```
@@ -330,9 +330,20 @@ steps is worth more than a claim.
 
 ## Adding or changing a quiz
 
-Add an entry to `REGIONS` in `src/lib/regions.js`, and to `NAV` if it should appear in the header.
-Both are keyed by path, so URLs and navigation stay in sync automatically. To change _which_
-regions a quiz asks about, edit `scripts/rosters.json` and re-run `npm run geodata`.
+Add an entry to `REGIONS` in `src/lib/regions.js`, and its path to `NAV` if it should appear in
+the header. `NAV` takes its labels from `REGIONS`, so a quiz is named once. To change _which_
+regions a quiz asks about, edit `scripts/rosters.json` and re-run `npm run geodata`. A new roster
+also needs a vertex budget in `BUDGETS`.
+
+**Continent subregions follow the UN's M49 scheme**, names and membership:
+<https://unstats.un.org/unsd/methodology/m49/overview/>. It was chosen because a teacher can cite
+it. Where M49 differs from a textbook, M49 wins, unless a named curriculum document says otherwise.
+"How it is usually taught" from memory is not a source. Four regions are not in M49 and are placed
+with their neighbour; `regions.js` lists them. North America has no Northern America part, because
+three countries are not a quiz.
+
+`geodata.test.js` checks every submenu: each part asks only about its parent's regions, and every
+parent region is in exactly one part. Anything left out on purpose is listed there with the reason.
 
 `/oceania` exists and is playable but is intentionally absent from `NAV`. The original site
 shipped that dataset without ever linking to it.
@@ -351,6 +362,10 @@ quiz content is genuinely meant to change.
 Output is quantized TopoJSON with a single `name` property. Everything else is discarded: Natural
 Earth ships 169 fields per feature and they were ~90% of the old payload. Shared arcs mean a border
 between two countries is stored once.
+
+Each file must stay under 150 KB, because a player downloads only the quiz they open. `world` is
+the largest, at about 120 KB. Most subregions are at Natural Earth 1:50m's full detail already, so
+a sharper subregion needs a finer source, not a bigger budget.
 
 Re-running the pipeline needs network access; downloads cache in `scripts/.cache/` (gitignored).
 Outputs are committed so deploys never run it.
