@@ -128,7 +128,7 @@
 	const summary = $derived(
 		[
 			`Zonia ${label} | ${quiz}`,
-			`fps median ${fps}  low5% ${fpsLow}  worst frame ${worstFrame}ms  slow frames ${slowFrames}/${sampled}`,
+			`fps median ${fps}  low5% ${fpsLow}  worst frame since playable ${worstFrame}ms  slow frames ${slowFrames}/${sampled}`,
 			`draw calls per frame ${drawCalls}`,
 			`interactive ${interactive}ms`,
 			device &&
@@ -182,8 +182,13 @@
 			if (delta > 0 && delta < 2000) {
 				deltas.push(delta);
 				if (deltas.length > WINDOW) deltas.shift();
-				if (delta > worstFrame) worstFrame = round(delta);
-				if (delta > SLOW_FRAME_MS) slowFrames++;
+				// Stutters only count once the quiz is playable. Loading blocks the page
+				// for a second on the world quiz while the land is built, and that one
+				// frame otherwise stands in for "worst frame" for the whole session.
+				if (interactive) {
+					if (delta > worstFrame) worstFrame = round(delta);
+					if (delta > SLOW_FRAME_MS) slowFrames++;
+				}
 			}
 
 			// Recompute a few times a second rather than every frame; the readout
