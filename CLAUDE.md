@@ -59,14 +59,15 @@ prompts in `Globe.svelte` and `MapGlobe.svelte`.
 
 ## Commands
 
-| Command                             | What it does                                                         |
-| ----------------------------------- | -------------------------------------------------------------------- |
-| `npm run dev`                       | Dev server                                                           |
-| `npm run build` / `npm run preview` | Production build / serve it locally                                  |
-| `npm test`                          | Vitest over quiz logic and built geodata                             |
-| `npm run check`                     | `svelte-check`                                                       |
-| `npm run lint` / `npm run format`   | Prettier check + ESLint / rewrite                                    |
-| `npm run geodata`                   | Rebuild `static/geo/` from upstream sources. **Not** part of `build` |
+| Command                             | What it does                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------ |
+| `npm run dev`                       | Dev server                                                               |
+| `npm run build` / `npm run preview` | Production build / serve it locally                                      |
+| `npm test`                          | Vitest over quiz logic and built geodata                                 |
+| `npm run check`                     | `svelte-check`                                                           |
+| `npm run lint` / `npm run format`   | Prettier check + ESLint / rewrite                                        |
+| `npm run geodata`                   | Rebuild `static/geo/` from upstream sources. **Not** part of `build`     |
+| `npm run logo`                      | Redraw the mark and favicons from `static/geo/`. **Not** part of `build` |
 
 ## Starting work
 
@@ -129,6 +130,7 @@ were a way to test. Until that setting changes, `main` is the only route to a te
 
 ```
 scripts/build-geodata.js   Geometry pipeline (build-time only)
+scripts/build-logo.js      Draws the mark and favicons from world.topo.json
 scripts/rosters.json       Which regions each quiz contains. The contract
 src/lib/regions.js         Every quiz, keyed by URL path, + nav structure
 src/lib/quiz.js            Quiz rules, pure, no DOM
@@ -138,6 +140,8 @@ src/lib/landMesh.js        Every cap in one mesh, every border once, no DOM
 src/lib/Globe.svelte       Renderer A, globe.gl / three-globe
 src/lib/MapGlobe.svelte    Renderer B, MapLibre (evaluation)
 src/lib/mapStyle.js        MapLibre style spec and view framing
+src/lib/palette.js         Region colours, shared by both renderers
+src/routes/styles.css      Page colour tokens and the one typeface
 src/routes/[...region]/    One route serving every quiz
 src/routes/lab/            A/B test harness for the renderer comparison
 static/geo/*.topo.json     Built geometry (committed)
@@ -460,6 +464,35 @@ referenced by its kapsule composition, so the unused ones cannot be tree-shaken.
 for direct three-globe use was measured and does not pay. Because of that bundle plus `ssr = false`,
 `src/app.html` carries a static `#boot` splash that paints before any JavaScript runs;
 `+layout.svelte` removes it on mount.
+
+## Design system
+
+Three rules, each with a source a teacher could check.
+
+- **Hues come from Okabe and Ito's Color Universal Design palette.** The globe uses yellow for
+  hover, blue for right and vermillion for wrong. The old green and red came out as the same khaki
+  under simulated deuteranopia, which affects up to 8% of boys. `palette.test.js` fails if any two
+  region states get too close under deuteranopia or protanopia. The page's one accent is reddish
+  purple, the Okabe-Ito hue the globe does not use, so nothing on the page looks like an answer.
+  <https://easystats.github.io/see/reference/palette_okabeito.html>
+- **Greys come from USWDS system tokens.** Each has a grade from 0 (white) to 100 (black). A gap of
+  50 or more between two grades meets WCAG AA for text. WCAG 2.1 AA is what the ADA Title II rule
+  asks of US public schools. <https://designsystem.digital.gov/design-tokens/color/overview/>
+- **One typeface, upright only: Atkinson Hyperlegible Next.** The Braille Institute drew it with
+  low-vision readers so that I, l and 1 differ. In Poppins and Anta, which it replaced, "Illinois"
+  began with two identical strokes. The prompt used to be italic, and italic reads worse for
+  students with dyslexia (Rello and Baeza-Yates, 2013). Do not swap in a "dyslexia font". Studies
+  of OpenDyslexic found no gain.
+
+Region colours live in `src/lib/palette.js` and page colours in `src/routes/styles.css`. `app.html`
+repeats four page colours because it paints before the stylesheet loads. Translucent overlays stay
+as `rgba()`, because `color-mix()` needs Chromium 111 and the panel runs 99.
+
+The mark is the Earth drawn from Natural Earth, which is public domain. It replaced the EAST
+Eureka Springs Middle School logo, which is someone else's registered mark. Change its view or
+detail in `scripts/build-logo.js` and run `npm run logo`.
+
+The land grey, the header and the accent have not been judged on the panel yet.
 
 ## Quiz rules
 
