@@ -25,7 +25,11 @@
 />
 
 <header>
-	<a href="/" class="logo" onclick={closeAll}>Zonia</a>
+	<a href="/" class="logo" onclick={closeAll}>
+		<!-- Empty alt: the name beside it already says where the link goes. -->
+		<img src="/favicon.svg" alt="" width="32" height="32" />
+		Zonia
+	</a>
 
 	<button
 		class="menu-toggle"
@@ -102,11 +106,19 @@
 	}
 
 	.logo {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: clamp(1.5rem, 4vw, 2rem);
 		font-weight: 800;
 		color: var(--ink);
 		text-decoration: none;
 		white-space: nowrap;
+	}
+
+	.logo img {
+		width: 1.2em;
+		height: 1.2em;
 	}
 
 	.navbar ul {

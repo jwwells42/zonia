@@ -2,7 +2,11 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
+		<!-- Drawn by scripts/build-logo.js. The PNGs are for browsers without SVG
+		     icons, and for iOS, which only takes a PNG on the home screen. -->
+		<link rel="icon" href="%sveltekit.assets%/favicon-32.png" sizes="32x32" type="image/png" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" />
 		<!-- The quiz prompt needs this font on first paint. Fetching it now runs in
 		     parallel with the large globe bundle, not after it. -->
 		<link
@@ -39,6 +43,9 @@
 				color: #ffffff;
 				font-family: system-ui, sans-serif;
 			}
+			#boot .logo {
+				margin-bottom: -0.5rem;
+			}
 			#boot .mark {
 				font-size: 2.5rem;
 				font-weight: 700;
@@ -67,6 +74,7 @@
 	</head>
 	<body data-sveltekit-preload-data="hover">
 		<div id="boot">
+			<img class="logo" src="%sveltekit.assets%/favicon.svg" width="72" height="72" alt="" />
 			<div class="mark">Zonia</div>
 			<div class="spinner" role="status" aria-label="Loading"></div>
 		</div>
