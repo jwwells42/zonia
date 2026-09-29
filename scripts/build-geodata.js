@@ -10,6 +10,10 @@
  * 1:500k. Both are then cut to a budget, because 51k vertices of state outline
  * is detail no one can see on a sphere and every one costs tessellation time.
  *
+ * Natural Earth draws a few places M49 lists on their own inside another
+ * country: French Guiana inside France, Svalbard inside Norway. Its map-units
+ * file has them separately, and `MAP_UNITS` says which to take from there.
+ *
  * scripts/rosters.json is the contract: it names exactly which regions each
  * quiz contains and what each one is called. Sources may change; the roster
  * may not, except deliberately. A source that cannot supply a roster member
@@ -32,6 +36,40 @@ const outDir = join(root, 'static', 'geo');
 const NE_URL =
 	'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson';
 const NE_FILE = join(cacheDir, 'ne_50m_admin_0_countries.geojson');
+
+const NE_UNITS_URL =
+	'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_map_units.geojson';
+const NE_UNITS_FILE = join(cacheDir, 'ne_50m_admin_0_map_units.geojson');
+
+/**
+ * Roster codes drawn from Natural Earth's map units, and which units make each.
+ *
+ * The countries file draws French Guiana as part of France, so a tap on it
+ * answered France. M49 lists it on its own, like the other places here. Each
+ * parent is listed too, so it is drawn without the parts that now stand alone.
+ * Otherwise France and French Guiana would both cover the same land.
+ *
+ * The map units share every point with the countries file, so borders still
+ * line up. Nothing else comes from it: it also splits the UK into four and
+ * Belgium into three, which no quiz asks about.
+ */
+const MAP_UNITS = {
+	FRA: ['FXX'], // without its five overseas regions
+	GUF: ['GUF'],
+	GLP: ['GLP'],
+	MTQ: ['MTQ'],
+	MYT: ['MYT'],
+	REU: ['REU'],
+	NOR: ['NOR'], // without Svalbard and Jan Mayen
+	SJM: ['NSV', 'NJM'],
+	NLD: ['NLD'], // without the Caribbean Netherlands
+	BES: ['NLY'],
+	NZL: ['NZL'], // without Tokelau
+	TKL: ['TKL'],
+	// The countries file draws these two as one "Indian Ocean Territories".
+	CXR: ['CXR'],
+	CCK: ['CCK']
+};
 
 const US_URL = 'https://www2.census.gov/geo/tiger/GENZ2023/shp/cb_2023_us_state_500k.zip';
 const US_ZIP = join(cacheDir, 'cb_2023_us_state_500k.zip');
@@ -123,6 +161,7 @@ async function download(url, dest, label) {
 async function fetchSources() {
 	mkdirSync(cacheDir, { recursive: true });
 	await download(NE_URL, NE_FILE, 'Natural Earth');
+	await download(NE_UNITS_URL, NE_UNITS_FILE, 'Natural Earth map units');
 	await download(US_URL, US_ZIP, 'Census state boundaries');
 	if (!existsSync(US_FILE)) {
 		await mapshaper.runCommands(`-i ${US_ZIP} -o ${US_FILE} format=geojson`);
@@ -139,7 +178,9 @@ function collect(key, roster, sources) {
 		const matches =
 			roster.source === 'us-states'
 				? sources.us.filter((f) => f.properties.NAME === name)
-				: sources.ne.filter((f) => f.properties.ADM0_A3 === code);
+				: MAP_UNITS[code]
+					? sources.units.filter((f) => MAP_UNITS[code].includes(f.properties.GU_A3))
+					: sources.ne.filter((f) => f.properties.ADM0_A3 === code);
 
 		if (!matches.length) {
 			unmatched.push(`${code} (${name})`);
@@ -240,6 +281,7 @@ async function main() {
 
 	const rosters = JSON.parse(readFileSync(join(root, 'scripts', 'rosters.json'), 'utf8'));
 	const ne = JSON.parse(readFileSync(NE_FILE, 'utf8')).features;
+	const units = JSON.parse(readFileSync(NE_UNITS_FILE, 'utf8')).features;
 	const us = JSON.parse(readFileSync(US_FILE, 'utf8')).features;
 
 	mkdirSync(outDir, { recursive: true });
@@ -249,7 +291,7 @@ async function main() {
 	for (const [key, roster] of Object.entries(rosters)) {
 		const budget = BUDGETS[key];
 		if (!budget) throw new Error(`No vertex budget defined for "${key}"`);
-		const fc = collect(key, roster, { ne, us });
+		const fc = collect(key, roster, { ne, units, us });
 		rows.push(await buildDataset(key, fc, budget));
 	}
 

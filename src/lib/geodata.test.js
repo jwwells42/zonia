@@ -10,6 +10,7 @@ import {
 	capResolution,
 	angularSpan
 } from './geo.js';
+import { regionIndex, regionAt } from './pick.js';
 
 // three-conic-polygon-geometry reads a global THREE if there is one. There is
 // not, under vitest, and it checks `window` before deciding.
@@ -66,6 +67,22 @@ const inTriangle = (px, py, a, b, c) => {
 	const v = ((c.lat - a.lat) * (px - c.lng) + (a.lng - c.lng) * (py - c.lat)) / d;
 	return u >= -1e-9 && v >= -1e-9 && u + v <= 1 + 1e-9;
 };
+
+/** True if some point inside `rings` picks the feature it belongs to. */
+function pickedInside(index, feature, rings) {
+	if (!(rings[0]?.length > 2)) return false;
+	const { minX, minY, maxX, maxY } = ringBounds(rings[0]);
+	const steps = 30;
+	for (let i = 0.5; i < steps; i++) {
+		for (let j = 0.5; j < steps; j++) {
+			const x = minX + ((maxX - minX) * i) / steps;
+			const y = minY + ((maxY - minY) * j) / steps;
+			if (pointInRings(x, y, rings) && regionAt(index, y, x) === feature.properties.name)
+				return true;
+		}
+	}
+	return false;
+}
 
 describe('built geodata', () => {
 	it('has a dataset for every routed region', () => {
@@ -155,6 +172,18 @@ describe('built geodata', () => {
 				expect(failures.slice(0, 8)).toEqual([]);
 			});
 
+			it('lets every region be picked somewhere inside it', () => {
+				// A region nobody can tap cannot be mastered, so the quiz cannot be
+				// won. The risk is an enclave. Vatican City and San Marino are holes
+				// in Italy, and if simplification closed a hole, a tap there would
+				// answer Italy. Filling Italy's holes makes this fail for both.
+				const index = regionIndex(features);
+				const unreachable = features
+					.filter((f) => !polygonParts(f.geometry).some((rings) => pickedInside(index, f, rings)))
+					.map((f) => f.properties.name);
+				expect(unreachable).toEqual([]);
+			});
+
 			it('stays within valid latitude and longitude', () => {
 				const walk = (c) => {
 					if (typeof c[0] === 'number') {
@@ -172,9 +201,10 @@ describe('built geodata', () => {
 
 /**
  * Regions a submenu deliberately leaves out of its parts, by parent dataset.
- * M49's Northern America is Canada, the US and Greenland: too few for a quiz.
+ * M49's Northern America is Canada, the US, Greenland, Bermuda, and Saint
+ * Pierre and Miquelon: too few for a quiz.
  */
-const LEFT_OUT = { na: ['CAN', 'GRL', 'USA'] };
+const LEFT_OUT = { na: ['BMU', 'CAN', 'GRL', 'SPM', 'USA'] };
 
 describe('submenus', () => {
 	for (const item of NAV.filter((entry) => entry.children)) {
