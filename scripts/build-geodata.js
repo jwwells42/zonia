@@ -20,6 +20,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import mapshaper from 'mapshaper';
 import { feature } from 'topojson-client';
@@ -37,22 +38,23 @@ const US_ZIP = join(cacheDir, 'cb_2023_us_state_500k.zip');
 const US_FILE = join(cacheDir, 'us_states_500k.geojson');
 
 /**
- * Target vertex count for the decoded geometry of each dataset. That is what
- * three-globe actually tessellates. Budgets are tuned to the zoom each quiz is
- * viewed at: the world sits far enough out that ~20k reads as smooth, while a
- * single US region fills the screen and needs proportionally more per feature.
+ * Target vertex count for the decoded geometry of each dataset. That is what the
+ * land mesh tessellates. Budgets are tuned to the zoom each quiz is viewed at:
+ * the world sits far enough out that ~20k reads as smooth, while a single US
+ * region fills the screen and needs proportionally more per feature.
  */
 const BUDGETS = {
-	// Most of the visual gain over the old 1:110m data comes from the source
-	// having small islands at all, not from raw vertex count. So these stay
-	// modest. Every vertex here is tessellated at load and raycast on every
-	// pointer move, and `world` pays that across 177 features at once.
+	// Every vertex is tessellated once, at load. Nothing is paid per frame: the
+	// land is one mesh whatever its size, and picking only tests the shapes near
+	// the pointer.
 	//
-	// `world` is pinned near the vertex count of the 1:110m data it replaces
-	// (10,654). Measured on a 4x-throttled CPU, going much above that made the
-	// world quiz slower to load and hover than the original. The one view where
-	// extra detail does not pay for itself.
-	world: 11500,
+	// `world` was pinned at 11,500 when three-globe drew every region itself and
+	// raycast them all on every pointer move. That cut Greece to 59 points and
+	// three pieces, and it looked it. 22,000 is where Greece, Japan and Denmark
+	// hold their shape at three times the opening zoom. About 7,500 of that is
+	// the minimum outline of every island. Building the land went from 91 ms to
+	// about 200 ms on a desktop CPU.
+	world: 22000,
 	africa: 8000,
 	asia: 8000,
 	eu: 7000,
@@ -91,7 +93,11 @@ const BUDGETS = {
 	'na-car': 4000
 };
 
-/** The world quiz is the largest, at about 120 KB. */
+/**
+ * Largest a dataset may be once compressed, which is how it travels. Vercel
+ * sends it with brotli. gzip is measured here: it comes out about a fifth
+ * larger, so the limit errs safe. The world quiz is the largest, at about 90 KB.
+ */
 const MAX_DATASET_BYTES = 150 * 1024;
 
 const countVertices = (coords) =>
@@ -159,17 +165,22 @@ function collect(key, roster, sources) {
 /**
  * Runs the mapshaper chain at a given simplification percentage.
  *
- * -dissolve merges same-named features into one MultiPolygon. This is what
+ * keep-shapes stops simplification deleting a shape outright, but it guards
+ * whole features, not their parts. Run on a country, it kept the largest piece
+ * and let the islands go: `world` kept 233 of its 1,462 pieces, and Greece lost
+ * 37 of 40. So every piece is made its own feature first, and simplified as one.
+ *
+ * -dissolve then puts each region back together as one MultiPolygon. It also
  * repairs us-w, where Alaska, California, Hawaii, Oregon and Washington were
  * each stored as two separate features and the quiz silently deduped them.
- * keep-shapes stops simplification from deleting small islands outright.
  */
 async function simplifyTo(fc, percentage) {
 	const cmd = [
 		'-i in.json',
+		'-explode',
+		`-simplify visvalingam weighted keep-shapes ${percentage}%`,
 		// `fields=` is required. A bare `name` collides with mapshaper's own `name=` layer option.
 		'-dissolve fields=name',
-		`-simplify visvalingam weighted keep-shapes ${percentage}%`,
 		'-clean',
 		'-o out.json format=topojson precision=0.001'
 	].join(' ');
@@ -202,9 +213,9 @@ async function buildDataset(key, fc, budget) {
 		guess = (lo + hi) / 2;
 	}
 
-	// keep-shapes sets a floor: tiny islands keep their minimum ring regardless
-	// of budget, so a dataset full of small features can overshoot. That is the
-	// correct trade. Dropping them would remove clickable answers.
+	// keep-shapes sets a floor: every island keeps its minimum ring regardless
+	// of budget, so a dataset full of small islands can overshoot. That is the
+	// correct trade. Dropping them would remove land, and sometimes answers.
 	const names = new Set(best.decoded.features.map((f) => f.properties.name));
 	const expected = Object.keys(fc.features.reduce((m, f) => ((m[f.properties.name] = 1), m), {}));
 	const lost = expected.filter((n) => !names.has(n));
@@ -219,7 +230,7 @@ async function buildDataset(key, fc, budget) {
 		input,
 		vertices: best.vertices,
 		percentage: best.percentage,
-		bytes: Buffer.byteLength(json)
+		bytes: gzipSync(json).length
 	};
 }
 
@@ -244,7 +255,7 @@ async function main() {
 
 	const pad = (v, n) => String(v).padEnd(n);
 	console.log(
-		`\n  ${pad('dataset', 10)}${pad('features', 10)}${pad('src verts', 11)}${pad('verts', 8)}${pad('simplify', 10)}bytes`
+		`\n  ${pad('dataset', 10)}${pad('features', 10)}${pad('src verts', 11)}${pad('verts', 8)}${pad('simplify', 10)}gzipped`
 	);
 	for (const r of rows) {
 		console.log(

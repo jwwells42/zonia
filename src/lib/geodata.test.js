@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { feature } from 'topojson-client';
 import { NAV, REGIONS } from './regions.js';
-import { polygonParts, pointInRings, ringBounds, capResolution, angularSpan } from './geo.js';
+import {
+	polygonParts,
+	pointInRings,
+	ringBounds,
+	signedDistance,
+	capResolution,
+	angularSpan
+} from './geo.js';
 
 // three-conic-polygon-geometry reads a global THREE if there is one. There is
 // not, under vitest, and it checks `window` before deciding.
@@ -134,6 +141,11 @@ describe('built geodata', () => {
 						for (let x = minX + step / 2; x <= maxX; x += step) {
 							for (let y = minY + step / 2; y <= maxY; y += step) {
 								if (!pointInRings(x, y, rings)) continue;
+								// Closer to the outline than the data's own precision, a point
+								// is both inside and out. The cap is stored as 32-bit floats,
+								// which can round it either way. Okushiri, off Japan, drew one
+								// sample 0.0005 degrees from its edge.
+								if (Math.abs(signedDistance(x, y, rings)) < 0.001) continue;
 								if (triangles.some(([a, b, c]) => inTriangle(x, y, a, b, c))) continue;
 								failures.push(`${f.properties.name} at ${x.toFixed(2)},${y.toFixed(2)}`);
 							}

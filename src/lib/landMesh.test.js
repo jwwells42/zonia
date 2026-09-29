@@ -63,15 +63,24 @@ describe('borderGeometry', () => {
 	it('draws a shared border once, not once per neighbour', () => {
 		// Outlining every polygon draws each land border twice, one line from
 		// each side. The TopoJSON mesh has each arc once, so it should come to
-		// clearly fewer segments than the outlines it replaces.
-		const borders = borderGeometry(mesh(topology, object), { radius: RADIUS, resolution: 5 });
+		// exactly the outlines less one copy of every shared border.
+		//
+		// This used to ask for "under 80% of the outlines". Keeping every island
+		// added coastline, which nobody shares, and the ratio moved without
+		// anything being drawn twice.
+		const options = { radius: RADIUS, resolution: 5 };
+		const borders = borderGeometry(mesh(topology, object), options);
+		const shared = borderGeometry(
+			mesh(topology, object, (a, b) => a !== b),
+			options
+		);
 		const outlines = features
 			.flatMap((f) => polygonParts(f.geometry))
 			.reduce((sum, rings) => {
 				const outline = new GeoJsonGeometry({ type: 'Polygon', coordinates: rings }, RADIUS, 5);
 				return sum + outline.index.count;
 			}, 0);
-		expect(borders.index.count).toBeGreaterThan(0);
-		expect(borders.index.count).toBeLessThan(outlines * 0.8);
+		expect(shared.index.count).toBeGreaterThan(0);
+		expect(borders.index.count).toBe(outlines - shared.index.count);
 	});
 });
