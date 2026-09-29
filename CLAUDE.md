@@ -339,24 +339,45 @@ the header. `NAV` takes its labels from `REGIONS`, so a quiz is named once. To c
 regions a quiz asks about, edit `scripts/rosters.json` and re-run `npm run geodata`. A new roster
 also needs a vertex budget in `BUDGETS`.
 
-**Continent subregions follow the UN's M49 scheme**, names and membership:
+**Continents and their subregions follow the UN's M49 scheme**, names and membership:
 <https://unstats.un.org/unsd/methodology/m49/overview/>. It was chosen because a teacher can cite
 it. Where M49 differs from a textbook, M49 wins, unless a named curriculum document says otherwise.
-"How it is usually taught" from memory is not a source. Four regions are not in M49 and are placed
-with their neighbour; `regions.js` lists them. North America has no Northern America part, because
-three countries are not a quiz.
+"How it is usually taught" from memory is not a source. North America has no Northern America part,
+because five places, three of them islands, are not a quiz.
+
+**Every M49 country or area that Natural Earth 1:50m draws is in the quizzes**, in its continent,
+its subregion and `/world`. The maintainer chose that in September 2026, over countries only. It
+takes in territories such as Aruba, Hong Kong and Guam, and specks such as Tokelau and Pitcairn.
+Three M49 areas are missing because the source does not draw them: Gibraltar, Bouvet Island and the
+US Minor Outlying Islands. Four regions are not in M49 and are placed with their neighbour;
+`regions.js` lists them.
+
+A part of a country stays part of it unless M49 lists it separately. French Guiana is its own
+region. Kaliningrad, Alaska and the Canary Islands are not, so a tap on Kaliningrad answers Russia.
+That was asked about and decided.
+
+`/middle-east` is not an M49 grouping. It is the original site's list, plus Bahrain, which the old
+1:110m data could not draw.
 
 `geodata.test.js` checks every submenu: each part asks only about its parent's regions, and every
 parent region is in exactly one part. Anything left out on purpose is listed there with the reason.
-
-`/oceania` exists and is playable but is intentionally absent from `NAV`. The original site
-shipped that dataset without ever linking to it.
 
 ## The geodata pipeline
 
 Sources are deliberately richer than the output: simplifying down from dense geometry beats
 shipping a coarse source. Countries come from Natural Earth 1:50m, states from Census cartographic
 boundaries at 1:500k. Both are cut to a per-dataset vertex budget in `BUDGETS`.
+
+Natural Earth's countries file draws some M49 areas inside another country: French Guiana inside
+France, Svalbard inside Norway. `MAP_UNITS` in `build-geodata.js` takes those, and the country they
+came out of, from Natural Earth's map-units file instead. The two files share every point, so
+borders still line up.
+
+**Islands are simplified one at a time.** mapshaper's `keep-shapes` stops a whole feature
+vanishing, not each of its parts. Run on countries, it kept the biggest piece and dropped the rest:
+`world` kept 233 of its 1,462 pieces, and Greece lost 37 of its 40. The pipeline now splits every
+piece out before simplifying and joins them after. Every island keeps at least a small outline,
+which costs `world` about 7,500 of its 22,000 points.
 
 `scripts/rosters.json` is the contract. It pins the exact set of regions in each quiz and their
 display names, so changing sources cannot silently change what the quiz asks. **A source that
@@ -367,9 +388,16 @@ Output is quantized TopoJSON with a single `name` property. Everything else is d
 Earth ships 169 fields per feature and they were ~90% of the old payload. Shared arcs mean a border
 between two countries is stored once.
 
-Each file must stay under 150 KB, because a player downloads only the quiz they open. `world` is
-the largest, at about 120 KB. Most subregions are at Natural Earth 1:50m's full detail already, so
-a sharper subregion needs a finer source, not a bigger budget.
+Each file must stay under 150 KB gzipped, because a player downloads only the quiz they open.
+Vercel serves it compressed, so that is the size that travels. `world` is the largest, at about
+86 KB. Most subregions are at Natural Earth 1:50m's full detail already, so a sharper subregion
+needs a finer source, not a bigger budget.
+
+`world`'s budget went from 11,500 to 22,000 points in September 2026. The old figure dated from
+when every point was also raycast on every pointer move; that is gone. What is left is load time:
+building the land mesh went from about 90 ms to about 200 ms on a desktop CPU. Expect roughly six
+times that on the panel. It has 249 regions now, up from 177, and has not been measured on the
+panel since.
 
 Re-running the pipeline needs network access; downloads cache in `scripts/.cache/` (gitignored).
 Outputs are committed so deploys never run it.
@@ -503,6 +531,12 @@ mistakes. A score-driven win check let a player master everything and never be t
 Wrong answers cost score only, floored at zero; they never add to what a region requires. A correct
 click rotates the target away, so mastering a region means clicking it correctly across several
 turns. When nothing remains, `target` becomes `null` rather than `undefined`.
+
+**A region stays away for `SPACING` turns once asked**, 10, or half of what is left in a small quiz.
+Only an immediate repeat used to be blocked. Classes reported the same country coming back two
+turns later, and on `/world` a perfect player met that about four times a game. It also emptied
+the second ask: two turns later, the answer is still in mind. Quick repeats now happen only in the
+last few turns, when so few regions remain that there is no other choice.
 
 ### The name fades before the region is finished
 
