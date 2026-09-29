@@ -37,8 +37,9 @@ export const REGIONS = {
 	// beside it is: Somaliland with Somalia, Kosovo with Serbia, Taiwan with
 	// China, Northern Cyprus with Cyprus. Natural Earth places them the same way.
 	//
-	// M49's Northern America is only Canada, the US and Greenland. Too few for a
-	// quiz, so they stay in the North America quiz only.
+	// M49's Northern America is Canada, the US, Greenland, Bermuda, and Saint
+	// Pierre and Miquelon. Too few for a quiz, so they stay in the North America
+	// quiz only.
 	//
 	// Each camera is on the subregion's mainland, not its overseas territories.
 	// Eastern Europe frames the European part of Russia.
@@ -60,9 +61,9 @@ export const REGIONS = {
 	'/north-america/caribbean': { label: 'Caribbean', dataset: 'na-car', pov: [18, -73, 0.6] },
 
 	'/south-america': { label: 'South America', dataset: 'sa', pov: [-25, -55, 1.4] },
-	// Built by the pipeline and playable, but deliberately absent from NAV. The
-	// original site had the data without ever linking to it.
-	'/oceania': { label: 'Oceania', dataset: 'oceania', pov: [-25, 140, 1.4] },
+	// Oceania runs from Christmas Island to Pitcairn, too wide to see at once.
+	// This centres on Melanesia, with Australia to the west and Polynesia east.
+	'/oceania': { label: 'Oceania', dataset: 'oceania', pov: [-12, 165, 1.4] },
 	'/world': { label: 'World', dataset: 'world', pov: [0, 0, 1.4] }
 };
 
@@ -100,6 +101,7 @@ export const NAV = [
 	link('/middle-east'),
 	link('/north-america', ['/north-america/central', '/north-america/caribbean']),
 	link('/south-america'),
+	link('/oceania'),
 	link('/world')
 ];
 

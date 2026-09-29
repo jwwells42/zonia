@@ -10,6 +10,10 @@
  * 1:500k. Both are then cut to a budget, because 51k vertices of state outline
  * is detail no one can see on a sphere and every one costs tessellation time.
  *
+ * Natural Earth draws a few places M49 lists on their own inside another
+ * country: French Guiana inside France, Svalbard inside Norway. Its map-units
+ * file has them separately, and `MAP_UNITS` says which to take from there.
+ *
  * scripts/rosters.json is the contract: it names exactly which regions each
  * quiz contains and what each one is called. Sources may change; the roster
  * may not, except deliberately. A source that cannot supply a roster member
@@ -20,6 +24,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import mapshaper from 'mapshaper';
 import { feature } from 'topojson-client';
@@ -32,27 +37,62 @@ const NE_URL =
 	'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson';
 const NE_FILE = join(cacheDir, 'ne_50m_admin_0_countries.geojson');
 
+const NE_UNITS_URL =
+	'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_map_units.geojson';
+const NE_UNITS_FILE = join(cacheDir, 'ne_50m_admin_0_map_units.geojson');
+
+/**
+ * Roster codes drawn from Natural Earth's map units, and which units make each.
+ *
+ * The countries file draws French Guiana as part of France, so a tap on it
+ * answered France. M49 lists it on its own, like the other places here. Each
+ * parent is listed too, so it is drawn without the parts that now stand alone.
+ * Otherwise France and French Guiana would both cover the same land.
+ *
+ * The map units share every point with the countries file, so borders still
+ * line up. Nothing else comes from it: it also splits the UK into four and
+ * Belgium into three, which no quiz asks about.
+ */
+const MAP_UNITS = {
+	FRA: ['FXX'], // without its five overseas regions
+	GUF: ['GUF'],
+	GLP: ['GLP'],
+	MTQ: ['MTQ'],
+	MYT: ['MYT'],
+	REU: ['REU'],
+	NOR: ['NOR'], // without Svalbard and Jan Mayen
+	SJM: ['NSV', 'NJM'],
+	NLD: ['NLD'], // without the Caribbean Netherlands
+	BES: ['NLY'],
+	NZL: ['NZL'], // without Tokelau
+	TKL: ['TKL'],
+	// The countries file draws these two as one "Indian Ocean Territories".
+	CXR: ['CXR'],
+	CCK: ['CCK']
+};
+
 const US_URL = 'https://www2.census.gov/geo/tiger/GENZ2023/shp/cb_2023_us_state_500k.zip';
 const US_ZIP = join(cacheDir, 'cb_2023_us_state_500k.zip');
 const US_FILE = join(cacheDir, 'us_states_500k.geojson');
 
 /**
- * Target vertex count for the decoded geometry of each dataset. That is what
- * three-globe actually tessellates. Budgets are tuned to the zoom each quiz is
- * viewed at: the world sits far enough out that ~20k reads as smooth, while a
- * single US region fills the screen and needs proportionally more per feature.
+ * Target vertex count for the decoded geometry of each dataset. That is what the
+ * land mesh tessellates. Budgets are tuned to the zoom each quiz is viewed at:
+ * the world sits far enough out that ~20k reads as smooth, while a single US
+ * region fills the screen and needs proportionally more per feature.
  */
 const BUDGETS = {
-	// Most of the visual gain over the old 1:110m data comes from the source
-	// having small islands at all, not from raw vertex count. So these stay
-	// modest. Every vertex here is tessellated at load and raycast on every
-	// pointer move, and `world` pays that across 177 features at once.
+	// Every vertex is tessellated once, at load. Nothing is paid per frame: the
+	// land is one mesh whatever its size, and picking only tests the shapes near
+	// the pointer.
 	//
-	// `world` is pinned near the vertex count of the 1:110m data it replaces
-	// (10,654). Measured on a 4x-throttled CPU, going much above that made the
-	// world quiz slower to load and hover than the original. The one view where
-	// extra detail does not pay for itself.
-	world: 11500,
+	// `world` was pinned at 11,500 when three-globe drew every region itself and
+	// raycast them all on every pointer move. That cut Greece to 59 points and
+	// three pieces, and it looked it. 22,000 is where Greece, Japan and Denmark
+	// hold their shape at three times the opening zoom. About 7,500 of that is
+	// the minimum outline of every island. Building the land went from 91 ms to
+	// about 200 ms on a desktop CPU.
+	world: 22000,
 	africa: 8000,
 	asia: 8000,
 	eu: 7000,
@@ -91,7 +131,11 @@ const BUDGETS = {
 	'na-car': 4000
 };
 
-/** The world quiz is the largest, at about 120 KB. */
+/**
+ * Largest a dataset may be once compressed, which is how it travels. Vercel
+ * sends it with brotli. gzip is measured here: it comes out about a fifth
+ * larger, so the limit errs safe. The world quiz is the largest, at about 90 KB.
+ */
 const MAX_DATASET_BYTES = 150 * 1024;
 
 const countVertices = (coords) =>
@@ -117,6 +161,7 @@ async function download(url, dest, label) {
 async function fetchSources() {
 	mkdirSync(cacheDir, { recursive: true });
 	await download(NE_URL, NE_FILE, 'Natural Earth');
+	await download(NE_UNITS_URL, NE_UNITS_FILE, 'Natural Earth map units');
 	await download(US_URL, US_ZIP, 'Census state boundaries');
 	if (!existsSync(US_FILE)) {
 		await mapshaper.runCommands(`-i ${US_ZIP} -o ${US_FILE} format=geojson`);
@@ -133,7 +178,9 @@ function collect(key, roster, sources) {
 		const matches =
 			roster.source === 'us-states'
 				? sources.us.filter((f) => f.properties.NAME === name)
-				: sources.ne.filter((f) => f.properties.ADM0_A3 === code);
+				: MAP_UNITS[code]
+					? sources.units.filter((f) => MAP_UNITS[code].includes(f.properties.GU_A3))
+					: sources.ne.filter((f) => f.properties.ADM0_A3 === code);
 
 		if (!matches.length) {
 			unmatched.push(`${code} (${name})`);
@@ -159,17 +206,22 @@ function collect(key, roster, sources) {
 /**
  * Runs the mapshaper chain at a given simplification percentage.
  *
- * -dissolve merges same-named features into one MultiPolygon. This is what
+ * keep-shapes stops simplification deleting a shape outright, but it guards
+ * whole features, not their parts. Run on a country, it kept the largest piece
+ * and let the islands go: `world` kept 233 of its 1,462 pieces, and Greece lost
+ * 37 of 40. So every piece is made its own feature first, and simplified as one.
+ *
+ * -dissolve then puts each region back together as one MultiPolygon. It also
  * repairs us-w, where Alaska, California, Hawaii, Oregon and Washington were
  * each stored as two separate features and the quiz silently deduped them.
- * keep-shapes stops simplification from deleting small islands outright.
  */
 async function simplifyTo(fc, percentage) {
 	const cmd = [
 		'-i in.json',
+		'-explode',
+		`-simplify visvalingam weighted keep-shapes ${percentage}%`,
 		// `fields=` is required. A bare `name` collides with mapshaper's own `name=` layer option.
 		'-dissolve fields=name',
-		`-simplify visvalingam weighted keep-shapes ${percentage}%`,
 		'-clean',
 		'-o out.json format=topojson precision=0.001'
 	].join(' ');
@@ -202,9 +254,9 @@ async function buildDataset(key, fc, budget) {
 		guess = (lo + hi) / 2;
 	}
 
-	// keep-shapes sets a floor: tiny islands keep their minimum ring regardless
-	// of budget, so a dataset full of small features can overshoot. That is the
-	// correct trade. Dropping them would remove clickable answers.
+	// keep-shapes sets a floor: every island keeps its minimum ring regardless
+	// of budget, so a dataset full of small islands can overshoot. That is the
+	// correct trade. Dropping them would remove land, and sometimes answers.
 	const names = new Set(best.decoded.features.map((f) => f.properties.name));
 	const expected = Object.keys(fc.features.reduce((m, f) => ((m[f.properties.name] = 1), m), {}));
 	const lost = expected.filter((n) => !names.has(n));
@@ -219,7 +271,7 @@ async function buildDataset(key, fc, budget) {
 		input,
 		vertices: best.vertices,
 		percentage: best.percentage,
-		bytes: Buffer.byteLength(json)
+		bytes: gzipSync(json).length
 	};
 }
 
@@ -229,6 +281,7 @@ async function main() {
 
 	const rosters = JSON.parse(readFileSync(join(root, 'scripts', 'rosters.json'), 'utf8'));
 	const ne = JSON.parse(readFileSync(NE_FILE, 'utf8')).features;
+	const units = JSON.parse(readFileSync(NE_UNITS_FILE, 'utf8')).features;
 	const us = JSON.parse(readFileSync(US_FILE, 'utf8')).features;
 
 	mkdirSync(outDir, { recursive: true });
@@ -238,13 +291,13 @@ async function main() {
 	for (const [key, roster] of Object.entries(rosters)) {
 		const budget = BUDGETS[key];
 		if (!budget) throw new Error(`No vertex budget defined for "${key}"`);
-		const fc = collect(key, roster, { ne, us });
+		const fc = collect(key, roster, { ne, units, us });
 		rows.push(await buildDataset(key, fc, budget));
 	}
 
 	const pad = (v, n) => String(v).padEnd(n);
 	console.log(
-		`\n  ${pad('dataset', 10)}${pad('features', 10)}${pad('src verts', 11)}${pad('verts', 8)}${pad('simplify', 10)}bytes`
+		`\n  ${pad('dataset', 10)}${pad('features', 10)}${pad('src verts', 11)}${pad('verts', 8)}${pad('simplify', 10)}gzipped`
 	);
 	for (const r of rows) {
 		console.log(

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createQuiz, MASTERY, SCAFFOLD } from './quiz.js';
+import { createQuiz, MASTERY, SCAFFOLD, SPACING } from './quiz.js';
 
 /** Deterministic RNG so target selection is reproducible. */
 const seeded = (values) => {
@@ -148,6 +148,42 @@ describe('createQuiz', () => {
 		const first = quiz.state.target;
 		quiz.click(first);
 		expect(quiz.state.target).not.toBe(first);
+	});
+
+	it('keeps a region away for SPACING turns once it has been asked', () => {
+		const names = Array.from({ length: 60 }, (_, i) => `Region ${i}`);
+		for (let game = 0; game < 50; game++) {
+			const quiz = createQuiz(names);
+			const last = new Map();
+			let turn = 0;
+			while (!quiz.state.won) {
+				const target = quiz.state.target;
+				// The cap shrinks to half of what is left, so only check while the
+				// full spacing is still on offer.
+				if (last.has(target) && quiz.state.remaining.length >= 2 * SPACING) {
+					expect(turn - last.get(target)).toBeGreaterThan(SPACING);
+				}
+				last.set(target, turn++);
+				quiz.click(target);
+			}
+		}
+	});
+
+	it('does not repeat the first round in order in a small quiz', () => {
+		// Spacing by the full cap would leave one choice a turn here, and the
+		// second round would be the first again.
+		const names = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'];
+		let sameOrder = 0;
+		for (let game = 0; game < 200; game++) {
+			const quiz = createQuiz(names);
+			const order = [];
+			while (!quiz.state.won) {
+				order.push(quiz.state.target);
+				quiz.click(quiz.state.target);
+			}
+			if (order.slice(0, 5).join() === order.slice(5).join()) sameOrder++;
+		}
+		expect(sameOrder).toBeLessThan(200);
 	});
 
 	it('repeats the target when it is the only one left', () => {

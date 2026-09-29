@@ -35,6 +35,21 @@ export const MASTERY = 2;
 export const SCAFFOLD = 1;
 
 /**
+ * Turns a region stays out of rotation after it is asked, at most.
+ *
+ * Classes reported the same country coming back two turns later, sometimes
+ * twice. Only an immediate repeat was blocked, and on /world a perfect player
+ * met a region again within three turns about four times a game. That is worse
+ * than annoying. The second ask is the unaided one, and two turns later the
+ * answer is still in mind, so it tests nothing.
+ *
+ * Half the regions still in play is the cap in a small quiz. A full cap there
+ * would leave one choice each turn, and the second round would repeat the
+ * first in the same order.
+ */
+export const SPACING = 10;
+
+/**
  * @param {string[]} names Region names, in any order.
  * @param {() => number} [random] Injectable RNG, for deterministic tests.
  */
@@ -69,9 +84,12 @@ export function createQuiz(names, random = Math.random) {
 		}
 	};
 
+	/** Every target so far, oldest first. */
+	const asked = [];
+
 	/**
-	 * Picks the next target from the unmastered regions, avoiding an immediate
-	 * repeat unless it is the only one left.
+	 * Picks the next target from the unmastered regions, leaving out the ones
+	 * asked most recently. See SPACING.
 	 */
 	function pickTarget() {
 		const remaining = state.remaining;
@@ -80,8 +98,11 @@ export function createQuiz(names, random = Math.random) {
 			state.won = true;
 			return;
 		}
-		const choices = remaining.length > 1 ? remaining.filter((n) => n !== state.target) : remaining;
+		const gap = Math.min(SPACING, Math.floor(remaining.length / 2));
+		const recent = asked.slice(Math.max(0, asked.length - gap));
+		const choices = remaining.filter((n) => !recent.includes(n));
 		state.target = choices[Math.floor(random() * choices.length)];
+		asked.push(state.target);
 	}
 
 	/**

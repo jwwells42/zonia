@@ -127,9 +127,12 @@
 		padding: 0;
 	}
 
+	/* One row, always. Wrapping put World on a second line on the 1280px
+	   classroom panel, and the header grew past --header-height, which the
+	   globe sizes itself against. The links scale down instead. See below. */
 	.navbar > ul {
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
 	}
 
@@ -142,13 +145,18 @@
 		display: block;
 		/* >=44px tall at every breakpoint. The old 16px padding on a 15px font
 		   left taps landing between targets. */
-		padding: 0.75rem 0.9rem;
+		padding: 0.75rem 0.6em;
 		min-height: 44px;
 		box-sizing: border-box;
 		display: flex;
 		align-items: center;
 		color: var(--ink);
-		font-size: clamp(0.95rem, 1.6vw, 1.2rem);
+		/* Sized to the viewport so the row fits down to the 1151px breakpoint.
+		   Measured in Chromium: the row is 49.4 times the font size, plus 220px
+		   of chevrons that stay 44px wide for a finger. That leaves 3% spare at
+		   1151px and 7% at the panel's 1280px. Adding a top-level quiz means
+		   measuring again. */
+		font-size: min(1.2rem, 1.28vw);
 		font-weight: 500;
 		text-decoration: none;
 		white-space: nowrap;
@@ -275,6 +283,12 @@
 
 		.row {
 			justify-content: space-between;
+		}
+
+		/* A column has room, so the menu keeps its larger size. */
+		.navbar a {
+			padding: 0.75rem 0.9rem;
+			font-size: clamp(0.95rem, 1.6vw, 1.2rem);
 		}
 
 		.row a {

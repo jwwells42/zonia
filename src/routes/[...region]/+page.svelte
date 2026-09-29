@@ -76,6 +76,17 @@
 			<Diagnostics label={useMapLibre ? 'B (maplibre)' : 'A (globe.gl)'} quiz={region.label} />
 		{/if}
 	{/key}
+
+	<!-- Here rather than in a renderer, so both show it. Bottom left, clear of
+	     the prompt at the top and the ?stats readout at the bottom right. -->
+	<a
+		class="namesake"
+		href="https://en.wikipedia.org/wiki/Zonia_Baber"
+		target="_blank"
+		rel="noopener noreferrer"
+	>
+		Named for Zonia Baber
+	</a>
 {:else}
 	<div class="missing">
 		<h1>No quiz here</h1>
@@ -84,6 +95,28 @@
 {/if}
 
 <style>
+	.namesake {
+		position: fixed;
+		z-index: 2;
+		left: max(0.75rem, env(safe-area-inset-left));
+		bottom: max(0.75rem, env(safe-area-inset-bottom));
+		display: flex;
+		align-items: center;
+		/* A finger's width, like every other target on a wall panel. */
+		min-height: 44px;
+		padding: 0 0.75rem;
+		border-radius: 6px;
+		/* The globe can turn under it, so it carries its own backing. */
+		background: rgba(6, 10, 24, 0.6);
+		color: var(--ink-muted);
+		font-size: 0.85rem;
+	}
+
+	.namesake:hover,
+	.namesake:focus-visible {
+		color: var(--ink);
+	}
+
 	.missing {
 		display: flex;
 		flex-direction: column;
