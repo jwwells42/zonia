@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LAND, HOVER, CORRECT, WRONG } from './palette.js';
+import { LAND, HOVER, CORRECT, WRONG, HINT } from './palette.js';
 
 /**
  * Simulated dichromat vision, at full severity. Machado, Oliveira and Fernandes,
@@ -48,7 +48,7 @@ function lab([r, g, b]) {
 
 const deltaE = (a, b) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]));
 
-const STATES = { LAND, HOVER, CORRECT, WRONG };
+const STATES = { LAND, HOVER, CORRECT, WRONG, HINT };
 
 const pairs = Object.entries(STATES).flatMap(([nameA, a], i, all) =>
 	all.slice(i + 1).map(([nameB, b]) => [`${nameA}/${nameB}`, a, b])

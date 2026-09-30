@@ -27,6 +27,16 @@ export const CORRECT = '#0072b2';
 export const WRONG = '#d55e00';
 
 /**
+ * The region a hint is showing, and its ring. White, USWDS grade 0.
+ *
+ * No Okabe-Ito hue was left that stays clear of the four above under colour
+ * blindness. Sky blue came closest, 24.8 from `CORRECT` against the test's 25.
+ * Reddish purple is taken by the page, which keeps it off the globe so nothing
+ * on the page looks like an answer. White is 50 or more from every state.
+ */
+export const HINT = '#ffffff';
+
+/**
  * A mastered region, dimmed so progress shows. USWDS gray-cool-70. Only MapLibre
  * draws it. It differs from `LAND` in lightness alone, which no kind of colour
  * blindness removes.
