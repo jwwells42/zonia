@@ -147,3 +147,96 @@ export function angularSpan(geometry) {
 export function capResolution(geometry, subdivided) {
 	return angularSpan(geometry) <= EXACT_CAP_MAX_SPAN ? EXACT_CAP : subdivided;
 }
+
+/** Area of a ring in square degrees. Only ever compared, so the distortion does not matter. */
+export function ringArea(ring) {
+	let sum = 0;
+	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+		sum += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
+	}
+	return Math.abs(sum / 2);
+}
+
+/**
+ * The point inside a polygon furthest from any edge, its pole of inaccessibility.
+ *
+ * Averaging a ring's vertices is not good enough. For anything crescent shaped
+ * the average lands outside the shape entirely: it puts Norway in Sweden,
+ * Croatia in Bosnia and Florida in the Gulf. When this was written for the
+ * standing names, a plain centroid missed its own region 26 times out of 467.
+ *
+ * This is the standard cartographic answer, by quadtree subdivision. Start with
+ * a grid of square cells covering the shape. Each cell knows the distance from
+ * its centre to the edge, so `distance + halfDiagonal` bounds how good any point
+ * inside it could possibly be. Repeatedly take the most promising cell and split
+ * it in four, discarding any cell whose bound cannot beat the best point found
+ * so far.
+ *
+ * @param {number[][][]} rings `[outerRing, ...holes]`.
+ * @returns {{ lat: number, lng: number }}
+ */
+function poleOfInaccessibility(rings) {
+	const { minX, minY, maxX, maxY } = ringBounds(rings[0]);
+	const width = maxX - minX;
+	const height = maxY - minY;
+	const cellSize = Math.min(width, height);
+	// A zero-width sliver has no interior worth searching.
+	if (cellSize === 0) return { lng: minX, lat: minY };
+
+	// Relative to the shape, so a small country is not searched to the same
+	// absolute precision as Russia.
+	const precision = cellSize / 40;
+
+	const makeCell = (x, y, h) => {
+		const d = signedDistance(x, y, rings);
+		return { x, y, h, d, max: d + h * Math.SQRT2 };
+	};
+
+	/** Cells still worth exploring. Small enough that a linear scan beats a heap. */
+	const queue = [];
+	let h = cellSize / 2;
+	for (let x = minX; x < maxX; x += cellSize) {
+		for (let y = minY; y < maxY; y += cellSize) queue.push(makeCell(x + h, y + h, h));
+	}
+
+	let best = makeCell(minX + width / 2, minY + height / 2, 0);
+
+	while (queue.length) {
+		let bestIndex = 0;
+		for (let i = 1; i < queue.length; i++) {
+			if (queue[i].max > queue[bestIndex].max) bestIndex = i;
+		}
+		const cell = queue.splice(bestIndex, 1)[0];
+
+		if (cell.d > best.d) best = cell;
+		// Nothing in this cell, or any cell behind it, can beat what we have.
+		if (cell.max - best.d <= precision) continue;
+
+		h = cell.h / 2;
+		queue.push(
+			makeCell(cell.x - h, cell.y - h, h),
+			makeCell(cell.x + h, cell.y - h, h),
+			makeCell(cell.x - h, cell.y + h, h),
+			makeCell(cell.x + h, cell.y + h, h)
+		);
+	}
+
+	return { lng: best.x, lat: best.y };
+}
+
+/**
+ * One point to show a region by: inside its largest piece, as far from the
+ * edges as it gets. The hint turns the globe to it and rings it.
+ *
+ * The largest piece, so a country with distant islands is shown on its
+ * mainland and not out in open water.
+ */
+export function interiorPoint(geometry) {
+	const usable = polygonParts(geometry).filter((rings) => rings[0]?.length > 2);
+	if (!usable.length) return null;
+	let largest = usable[0];
+	for (const rings of usable) {
+		if (ringArea(rings[0]) > ringArea(largest[0])) largest = rings;
+	}
+	return poleOfInaccessibility(largest);
+}

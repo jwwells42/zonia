@@ -64,6 +64,8 @@ export function createQuiz(names, random = Math.random) {
 		score: 0,
 		target: null,
 		won: false,
+		/** True once the current target has been shown to the player. See `reveal`. */
+		revealed: false,
 		/** Names still needing correct clicks. */
 		get remaining() {
 			return roster.filter((n) => hits.get(n) < MASTERY);
@@ -102,15 +104,40 @@ export function createQuiz(names, random = Math.random) {
 		const recent = asked.slice(Math.max(0, asked.length - gap));
 		const choices = remaining.filter((n) => !recent.includes(n));
 		state.target = choices[Math.floor(random() * choices.length)];
+		state.revealed = false;
 		asked.push(state.target);
 	}
 
 	/**
+	 * Shows the player the current target. A click on it then moves on and
+	 * counts for nothing.
+	 *
+	 * The player saw the answer rather than finding it, so it earns no score and
+	 * no progress. The region stays in play and comes back after SPACING turns,
+	 * to be found for real.
+	 *
+	 * @returns {string | null} The target that was revealed.
+	 */
+	function reveal() {
+		if (state.won || !state.target) return null;
+		state.revealed = true;
+		return state.target;
+	}
+
+	/**
 	 * Records a click on `name`.
-	 * @returns {{ correct: boolean, clicked: string, target: string | null, won: boolean }}
+	 * @returns {{ correct: boolean, revealed: boolean, clicked: string,
+	 *   target: string | null, won: boolean }}
 	 */
 	function click(name) {
-		if (state.won) return { correct: false, clicked: name, target: null, won: true };
+		if (state.won) {
+			return { correct: false, revealed: false, clicked: name, target: null, won: true };
+		}
+
+		if (state.revealed && name === state.target) {
+			pickTarget();
+			return { correct: false, revealed: true, clicked: name, target: state.target, won: false };
+		}
 
 		const correct = name === state.target;
 		if (correct) {
@@ -122,9 +149,9 @@ export function createQuiz(names, random = Math.random) {
 			// to let mistakes inflate how many correct clicks a region demanded.
 			state.score = Math.max(0, state.score - 1);
 		}
-		return { correct, clicked: name, target: state.target, won: state.won };
+		return { correct, revealed: false, clicked: name, target: state.target, won: state.won };
 	}
 
 	pickTarget();
-	return { state, click };
+	return { state, click, reveal };
 }

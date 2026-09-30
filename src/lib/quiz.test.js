@@ -186,6 +186,59 @@ describe('createQuiz', () => {
 		expect(sameOrder).toBeLessThan(200);
 	});
 
+	it('moves on from a revealed target without counting it', () => {
+		const quiz = createQuiz(['Alpha', 'Beta', 'Gamma']);
+		const shown = quiz.state.target;
+		expect(quiz.reveal()).toBe(shown);
+		const result = quiz.click(shown);
+		expect(result).toMatchObject({ correct: false, revealed: true, clicked: shown });
+		expect(quiz.state.score).toBe(0);
+		expect(quiz.state.masteredCount).toBe(0);
+		// Still unfound, so its name still shows next time.
+		expect(quiz.state.scaffolded(shown)).toBe(true);
+		expect(quiz.state.remaining).toContain(shown);
+		expect(quiz.state.target).not.toBe(shown);
+	});
+
+	it('does not change the target by revealing it, and forgets it on the next one', () => {
+		const quiz = createQuiz(['Alpha', 'Beta', 'Gamma']);
+		const shown = quiz.state.target;
+		quiz.reveal();
+		expect(quiz.state.target).toBe(shown);
+		expect(quiz.state.revealed).toBe(true);
+		quiz.click(shown);
+		expect(quiz.state.revealed).toBe(false);
+	});
+
+	it('treats a wrong click as wrong while a target is revealed', () => {
+		const quiz = createQuiz(['Alpha', 'Beta']);
+		quiz.click(quiz.state.target);
+		expect(quiz.state.score).toBe(1);
+		quiz.reveal();
+		const wrong = quiz.state.target === 'Alpha' ? 'Beta' : 'Alpha';
+		expect(quiz.click(wrong)).toMatchObject({ correct: false, revealed: false });
+		expect(quiz.state.score).toBe(0);
+	});
+
+	it('never lets reveals change what winning costs', () => {
+		// The same invariant as for wrong answers: winning always takes exactly
+		// total * MASTERY correct clicks, however many answers were shown first.
+		const quiz = createQuiz(['Alpha', 'Beta', 'Gamma']);
+		for (let i = 0; i < 10; i++) {
+			quiz.reveal();
+			quiz.click(quiz.state.target);
+		}
+		expect(quiz.state.score).toBe(0);
+		expect(playThrough(quiz)).toBe(3 * MASTERY);
+	});
+
+	it('reveals nothing once won', () => {
+		const quiz = createQuiz(['Alpha']);
+		playThrough(quiz);
+		expect(quiz.reveal()).toBeNull();
+		expect(quiz.state.revealed).toBe(false);
+	});
+
 	it('repeats the target when it is the only one left', () => {
 		const quiz = createQuiz(['Alpha']);
 		const first = quiz.state.target;

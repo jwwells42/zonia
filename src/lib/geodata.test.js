@@ -8,7 +8,8 @@ import {
 	ringBounds,
 	signedDistance,
 	capResolution,
-	angularSpan
+	angularSpan,
+	interiorPoint
 } from './geo.js';
 import { regionIndex, regionAt } from './pick.js';
 
@@ -182,6 +183,19 @@ describe('built geodata', () => {
 					.filter((f) => !polygonParts(f.geometry).some((rings) => pickedInside(index, f, rings)))
 					.map((f) => f.properties.name);
 				expect(unreachable).toEqual([]);
+			});
+
+			it('puts every hint point on its own region', () => {
+				// The hint rings this point and turns the globe to it, so a tap on the
+				// ring has to answer the region it rings.
+				const index = regionIndex(features);
+				const misses = features
+					.filter((f) => {
+						const point = interiorPoint(f.geometry);
+						return !point || regionAt(index, point.lat, point.lng) !== f.properties.name;
+					})
+					.map((f) => f.properties.name);
+				expect(misses).toEqual([]);
 			});
 
 			it('stays within valid latitude and longitude', () => {

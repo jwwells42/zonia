@@ -556,10 +556,11 @@ guards the relationship.
 
 ### Names on demand
 
-|            | Mouse | Touch or pen                |
-| ---------- | ----- | --------------------------- |
-| See a name | Hover | Tap, or the start of a hold |
-| Answer     | Click | Hold for `HOLD_MS`, 1000 ms |
+|            | Mouse       | Touch or pen                |
+| ---------- | ----------- | --------------------------- |
+| See a name | Hover       | Tap, or the start of a hold |
+| Answer     | Click       | Hold for `HOLD_MS`, 1000 ms |
+| Get a hint | Hint button | Hint button                 |
 
 A name shows for the region being pointed at, one at a time. It shows only while the region is
 scaffolded. The highlight shows either way, so a player always sees what they are about to answer.
@@ -586,3 +587,25 @@ Rules that hold this together:
 - **The browser's own long press is blocked on the globe.** Chromium opens a menu or selects text
   on a held finger, and a held finger is how a touch player answers.
 - **The hold ring is a CSS animation.** Nothing runs in script while it fills.
+
+### Hints
+
+A stuck student presses Hint. The maintainer chose a button, pressed on demand, in two steps. Least
+help first.
+
+1. **Hint** turns the globe to face the place. Finding it from there still counts in full.
+2. **Show me** lights the place white and rings it. A click on it moves on and counts for nothing:
+   no score and no progress. The place comes back after `SPACING` turns, to be found for real.
+
+The rule is `reveal()` in `quiz.js`. The point the globe turns to is `interiorPoint` in `geo.js`,
+inside the largest piece. `geodata.test.js` checks that a tap there answers that region, in every
+quiz.
+
+The ring is there for specks. Tokelau is invisible at most zooms, and lighting it alone shows
+nothing. The ring is DOM, like the name. globe.gl's own turn does not fire `onZoom`, so the ring
+appears once the turn ends and follows drags after that.
+
+White is the hint colour because no Okabe-Ito hue was left that stays clear of hover, right and
+wrong under colour blindness. See `palette.js`.
+
+Only the shipping renderer has the button. MapLibre also lacks names on demand.
