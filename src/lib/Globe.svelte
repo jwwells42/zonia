@@ -18,9 +18,9 @@
 	import { feature, mesh } from 'topojson-client';
 	import Confetti from './Confetti.svelte';
 	import { createQuiz } from './quiz.js';
-	import { LAND, HOVER, CORRECT, WRONG, BORDER } from './palette.js';
+	import { LAND, HOVER, CORRECT, WRONG, HINT, BORDER } from './palette.js';
 	import { regionIndex, regionAt } from './pick.js';
-	import { capResolution } from './geo.js';
+	import { capResolution, interiorPoint } from './geo.js';
 	import { datasetUrl } from './regions.js';
 	import { borderGeometry, landGeometry, paintRange } from './landMesh.js';
 	import globeSkin from '$lib/images/earth-night.webp';
@@ -94,6 +94,8 @@
 	let flashTimer;
 	/** Bounding-boxed geometry for resolving a tap to a region. Plain, not $state. */
 	let regions = [];
+	/** Every region's feature, for finding the one a hint points at. Plain, not $state. */
+	let features = [];
 
 	/**
 	 * The land and borders, as two meshes for the whole quiz. See landMesh.js.
@@ -106,7 +108,8 @@
 		base: new Color(LAND),
 		hover: new Color(HOVER),
 		correct: new Color(CORRECT),
-		wrong: new Color(WRONG)
+		wrong: new Color(WRONG),
+		hint: new Color(HINT)
 	};
 
 	const nameOf = (polygon) => polygon.properties.name;
@@ -124,7 +127,10 @@
 	function colorOf(name) {
 		const flashed = flash.get(name);
 		if (flashed) return capColors[flashed];
+		// Hover beats the hint, so pointing at the lit region still shows what
+		// is about to be answered.
 		if (name === hovered) return capColors.hover;
+		if (quiz?.state.revealed && name === quiz.state.target) return capColors.hint;
 		return capColors.base;
 	}
 
@@ -162,7 +168,7 @@
 
 	/** Shown under the score, because holding to answer is not something anyone guesses. */
 	const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
-	let hint = $derived(
+	let howTo = $derived(
 		coarsePointer
 			? labelsOn
 				? 'Tap to see a name. Hold to answer.'
@@ -202,6 +208,80 @@
 	function toggleNames() {
 		labelsOn = !labelsOn;
 		if (!labelsOn) peek = null;
+	}
+
+	/**
+	 * How far the hint has gone on this question. 0 not asked for. 1 the globe
+	 * has turned to face the place. 2 the place is lit and ringed, and a click on
+	 * it moves on for no credit. Least help first: after step 1 the student
+	 * still finds it, and it still counts.
+	 */
+	let hintStep = $state(0);
+
+	/** Where the hint points, `{ lat, lng }`. Worked out on the first press. */
+	let hintPoint = null;
+
+	/**
+	 * The ring round the hinted place, `{ x, y }` in canvas pixels, or null while
+	 * it is hidden. For a speck like Tokelau it is the only thing to see.
+	 */
+	let hintRing = $state(null);
+
+	/** How long the globe takes to turn to a hint. */
+	const TURN_MS = 1000;
+	let turnTimer;
+
+	function giveHint() {
+		const target = quiz?.state.target;
+		if (!world || won || !target || hintStep >= 2) return;
+		const shape = features.find((f) => nameOf(f) === target);
+		hintPoint ??= shape && interiorPoint(shape.geometry);
+		if (!hintPoint) return;
+
+		hintStep++;
+		if (hintStep === 2) {
+			quiz.reveal();
+			repaint(target);
+		}
+		// Turn again on step 2 too. The student may have dragged away since.
+		hintRing = null;
+		clearTimeout(turnTimer);
+		world.pointOfView(hintPoint, TURN_MS);
+		// The turn moves the camera without firing onZoom, so the ring is placed
+		// once it has finished. After that, onZoom keeps it in place.
+		turnTimer = setTimeout(placeHintRing, TURN_MS);
+	}
+
+	/**
+	 * Puts the ring over the hint's point, or hides it while the point is round
+	 * the back of the globe, where it would still project onto the screen.
+	 * Called on every camera move, and returns at once unless a ring is up.
+	 */
+	function placeHintRing() {
+		if (hintStep < 2 || !hintPoint || !world) {
+			hintRing = null;
+			return;
+		}
+		const { lat, lng } = hintPoint;
+		const point = world.getCoords(lat, lng, ALTITUDE);
+		const camera = world.camera().position;
+		// The globe is centred on the origin, so the point is its own outward
+		// normal. It faces the camera when that normal points towards it.
+		const facing =
+			point.x * (camera.x - point.x) +
+				point.y * (camera.y - point.y) +
+				point.z * (camera.z - point.z) >
+			0;
+		hintRing = facing ? world.getScreenCoords(lat, lng, ALTITUDE) : null;
+	}
+
+	/** A new question starts with no hint. `name` is the region that had one. */
+	function clearHint(name) {
+		clearTimeout(turnTimer);
+		hintStep = 0;
+		hintPoint = null;
+		hintRing = null;
+		repaint(name);
 	}
 
 	/**
@@ -251,6 +331,7 @@
 		if (!world || !containerEl) return;
 		const { width, height } = containerEl.getBoundingClientRect();
 		if (width && height) world.width(width).height(height);
+		placeHintRing();
 	}
 
 	function showFeedback(name, kind) {
@@ -270,16 +351,20 @@
 
 		score = quiz.state.score;
 		learned = quiz.state.masteredCount;
-		showFeedback(name, result.correct ? 'correct' : 'wrong');
+		// A shown answer gets no flash. Blue would say it was right.
+		if (!result.revealed) showFeedback(name, result.correct ? 'correct' : 'wrong');
 		// A correct answer retires the region's name, so the one on screen may
 		// now be wrong. The next hover or tap asks again.
 		peek = null;
+		if (result.correct || result.revealed) clearHint(name);
 
 		if (result.won) {
 			won = true;
 			confettiAmount = confettiCount();
 			confetti = confettiAmount > 0;
 			instruction = 'WINNER!';
+		} else if (result.revealed) {
+			instruction = `That was ${name}. Now find ${result.target}.`;
 		} else if (result.correct) {
 			instruction = `Good job. That was ${name}. Now find ${result.target}.`;
 		} else {
@@ -522,6 +607,7 @@
 			const object = Object.values(topology.objects)[0];
 			const polygons = feature(topology, object).features;
 			quiz = createQuiz(polygons.map(nameOf));
+			features = polygons;
 			total = quiz.state.total;
 			// One pass over the geometry, here rather than per tap.
 			regions = regionIndex(polygons);
@@ -567,7 +653,9 @@
 				// below. globe.gl's pointer system is off too: both the highlight and
 				// the answer come from regionUnder. See there for why they must not be
 				// resolved separately.
-				.enablePointerInteraction(false);
+				.enablePointerInteraction(false)
+				// Keeps a hint's ring on its place while the globe is dragged.
+				.onZoom(placeHintRing);
 
 			// three-render-objects sets this to Math.min(2, devicePixelRatio) at
 			// construction and offers no option for it, so it is overridden after the
@@ -604,6 +692,7 @@
 			clearTimeout(flashTimer);
 			clearTimeout(hoverTimer);
 			clearTimeout(holdTimer);
+			clearTimeout(turnTimer);
 			resizeObserver?.disconnect();
 			// Without this, switching regions leaks a WebGL context and its
 			// textures each time. The old code sidestepped it by forcing a full
@@ -649,10 +738,17 @@
 				<span class="muted">· {learned}/{total} learned</span>
 			{/if}
 		</p>
-		<p id="hint">{hint}</p>
-		<button id="labels-toggle" onclick={toggleNames} aria-pressed={labelsOn}>
-			{labelsOn ? 'Hide names' : 'Show names'}
-		</button>
+		<p id="how-to">{howTo}</p>
+		<div class="hud-buttons">
+			<button class="hud-button" onclick={toggleNames} aria-pressed={labelsOn}>
+				{labelsOn ? 'Hide names' : 'Show names'}
+			</button>
+			{#if !won && hintStep < 2}
+				<button class="hud-button" onclick={giveHint}>
+					{hintStep === 0 ? 'Hint' : 'Show me'}
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Taps are handled here rather than through globe.gl's own click, which
@@ -692,6 +788,15 @@
 			<circle class="track" cx="50" cy="50" r="44" />
 			<circle class="fill" cx="50" cy="50" r="44" pathLength="100" />
 		</svg>
+	{/if}
+
+	{#if hintRing}
+		<span
+			class="hint-ring"
+			style:transform="translate({hintRing.x}px, {hintRing.y}px) translate(-50%, -50%)"
+			style:--hint-colour={HINT}
+			aria-hidden="true"
+		></span>
 	{/if}
 
 	<!-- One name, for the region being pointed at. Plain DOM text rather than a
@@ -741,11 +846,17 @@
 		background: transparent;
 	}
 
-	#labels-toggle {
-		/* #hud ignores pointer events so drags pass through to the globe. This is
-		   the one thing in it that has to be clickable. */
-		pointer-events: auto;
+	.hud-buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
 		margin-top: 0.4rem;
+	}
+
+	.hud-button {
+		/* #hud ignores pointer events so drags pass through to the globe. The
+		   buttons are the only things in it that have to be clickable. */
+		pointer-events: auto;
 		/* Comfortably over the 44px touch target minimum, since the people using
 		   this are often standing at a wall panel. */
 		min-height: 44px;
@@ -758,15 +869,16 @@
 		cursor: pointer;
 	}
 
-	#labels-toggle:hover,
-	#labels-toggle:focus-visible {
+	.hud-button:hover,
+	.hud-button:focus-visible {
 		background: rgba(20, 38, 57, 0.85);
 	}
 
 	/* Both of these are placed by a transform from the top left corner, so moving
 	   them never lays the page out again. */
 	.peek,
-	.hold-ring {
+	.hold-ring,
+	.hint-ring {
 		position: absolute;
 		top: 0;
 		left: 0;
@@ -817,6 +929,42 @@
 		}
 	}
 
+	/* A steady ring, dark-edged so it shows over the white of the lit region,
+	   and a second one pulsing out from it to catch the eye. */
+	.hint-ring {
+		width: 56px;
+		height: 56px;
+		border: 3px solid var(--hint-colour);
+		border-radius: 50%;
+		box-sizing: border-box;
+		box-shadow:
+			0 0 0 2px rgba(6, 10, 24, 0.8),
+			inset 0 0 0 2px rgba(6, 10, 24, 0.8);
+	}
+
+	.hint-ring::after {
+		content: '';
+		position: absolute;
+		inset: -3px;
+		border: 3px solid var(--hint-colour);
+		border-radius: 50%;
+		animation: hint-pulse 1.4s ease-out infinite;
+	}
+
+	@keyframes hint-pulse {
+		to {
+			transform: scale(1.8);
+			opacity: 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.hint-ring::after {
+			animation: none;
+			opacity: 0;
+		}
+	}
+
 	#globe {
 		width: 100%;
 		height: 100%;
@@ -855,7 +1003,7 @@
 		font-size: clamp(0.9rem, 2.2vw, 1.5rem);
 	}
 
-	#hint {
+	#how-to {
 		margin: 0.25rem 0 0;
 		font-size: clamp(0.8rem, 1.6vw, 1rem);
 		opacity: 0.85;
